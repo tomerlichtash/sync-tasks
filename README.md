@@ -246,6 +246,19 @@ All within GCP free tier for personal use:
 **Duplicate tasks**
 - Delete `~/.tasks-sync-state.json` and tasks in Google, then run with `--reset`
 
+## Testing
+
+```bash
+# Run tests
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Run tests with coverage
+npm run test:coverage
+```
+
 ## License
 
 MIT
