@@ -1,0 +1,26 @@
+{
+  "name": "tasks-sync",
+  "version": "1.0.0",
+  "description": "Sync iOS Reminders to Google Tasks",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "deploy": "npm run build && gcloud functions deploy tasks-sync --gen2 --runtime=nodejs20 --trigger-http --entry-point=syncHandler --source=. --allow-unauthenticated=false"
+  },
+  "dependencies": {
+    "@google-cloud/firestore": "^7.1.0",
+    "@google-cloud/secret-manager": "^5.0.1",
+    "@google-cloud/functions-framework": "^3.3.0",
+    "googleapis": "^129.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0",
+    "ts-node": "^10.9.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

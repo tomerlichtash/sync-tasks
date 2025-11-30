@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.tasks-sync</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/tomerlichtash/dev/tasks-sync/local/.build/release/tasks-sync</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>WEBHOOK_URL</key>
+        <string>https://tasks-sync-qhk4x63iiq-uc.a.run.app</string>
+        <key>WEBHOOK_SECRET</key>
+        <string>YOUR_SECRET_HERE</string>
+    </dict>
+
+    <key>StartInterval</key>
+    <integer>900</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/tasks-sync.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/tasks-sync.error.log</string>
+</dict>
+</plist>
