@@ -89,12 +89,18 @@ func syncReminder(_ reminder: EKReminder) -> (uid: String, synced: SyncedReminde
 
         guard let data = data,
               let response = try? JSONDecoder().decode(WebhookResponse.self, from: data) else {
-            print("Invalid response for '\(reminder.title ?? "")'")
+            print("✗ Invalid response for '\(reminder.title ?? "")'")
             return
         }
 
         if response.success {
-            print("✓ Synced: \(reminder.title ?? "")")
+            if response.message == "Already synced" {
+                print("⏭ Skipped (already synced): \(reminder.title ?? "")")
+            } else if response.message == "Task updated successfully" {
+                print("✓ Updated: \(reminder.title ?? "")")
+            } else {
+                print("✓ Synced: \(reminder.title ?? "")")
+            }
             result = (uid: uid, synced: SyncedReminder(
                 googleTaskId: response.taskId,
                 syncedAt: Date(),
@@ -181,6 +187,7 @@ func main() {
     for reminder in reminders {
         // Skip if already synced (unless force flag is set)
         if !forceSync && state.syncedReminders[reminder.calendarItemIdentifier] != nil {
+            print("⏭ Skipped: \(reminder.title ?? "Untitled")")
             continue
         }
 

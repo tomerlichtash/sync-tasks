@@ -10,7 +10,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "deploy": "npm run build && gcloud functions deploy tasks-sync --gen2 --runtime=nodejs20 --trigger-http --entry-point=syncHandler --source=. --allow-unauthenticated=false"
+    "deploy": "make deploy"
   },
   "dependencies": {
     "@google-cloud/firestore": "^7.1.0",

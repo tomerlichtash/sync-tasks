@@ -129,4 +129,43 @@ export class GoogleTasksClient {
 
     return response.data.id;
   }
+
+  async updateTaskInList(listId: string, taskId: string, input: Partial<TaskInput>): Promise<void> {
+    const updateBody: tasks_v1.Schema$Task = {};
+
+    if (input.title !== undefined) updateBody.title = input.title;
+    if (input.notes !== undefined) updateBody.notes = input.notes;
+    if (input.due !== undefined) updateBody.due = input.due.toISOString();
+    if (input.completed !== undefined) {
+      updateBody.status = input.completed ? 'completed' : 'needsAction';
+    }
+
+    await this.tasksApi.tasks.patch({
+      tasklist: listId,
+      task: taskId,
+      requestBody: updateBody,
+    });
+  }
+
+  async taskExistsInList(listId: string, taskId: string): Promise<boolean> {
+    try {
+      await this.tasksApi.tasks.get({
+        tasklist: listId,
+        task: taskId,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async listTasksInList(listId: string): Promise<tasks_v1.Schema$Task[]> {
+    const response = await this.tasksApi.tasks.list({
+      tasklist: listId,
+      showCompleted: true,
+      showHidden: true,
+      showDeleted: true,
+    });
+    return response.data.items || [];
+  }
 }

@@ -213,10 +213,19 @@ describe('Webhook Handler', () => {
       expect(saveSyncedItem).not.toHaveBeenCalled();
     });
 
-    it('should re-sync when force flag is set', async () => {
+    it('should update existing task when force flag is set (no duplicates)', async () => {
       (getSyncedItem as jest.Mock).mockResolvedValue({
         googleTaskId: 'existing-task-id',
+        googleListId: 'existing-list-id',
       });
+
+      const mockUpdateTaskInList = jest.fn().mockResolvedValue(undefined);
+      const mockCreateTaskInList = jest.fn().mockResolvedValue('new-task-id');
+      (GoogleTasksClient as jest.Mock).mockImplementation(() => ({
+        findOrCreateTaskList: jest.fn().mockResolvedValue('mock-list-id'),
+        createTaskInList: mockCreateTaskInList,
+        updateTaskInList: mockUpdateTaskInList,
+      }));
 
       const req = createMockRequest({
         method: 'POST',
@@ -232,7 +241,10 @@ describe('Webhook Handler', () => {
       await handleRequest(req, res);
 
       expect(res._status).toBe(200);
-      expect((res._json as { message: string }).message).toBe('Task created successfully');
+      expect((res._json as { message: string }).message).toBe('Task updated successfully');
+      expect((res._json as { taskId: string }).taskId).toBe('existing-task-id');
+      expect(mockUpdateTaskInList).toHaveBeenCalledWith('existing-list-id', 'existing-task-id', expect.any(Object));
+      expect(mockCreateTaskInList).not.toHaveBeenCalled();
       expect(saveSyncedItem).toHaveBeenCalled();
     });
 
