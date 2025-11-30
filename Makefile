@@ -7,7 +7,7 @@ FUNCTION_NAME := tasks-sync
 # Get webhook URL from deployed function
 WEBHOOK_URL := $(shell gcloud functions describe $(FUNCTION_NAME) --gen2 --region=$(REGION) --project=$(GCP_PROJECT_ID) --format='value(serviceConfig.uri)')
 
-.PHONY: build test deploy sync sync-force sync-reset build-swift logs
+.PHONY: build test deploy sync sync-force sync-reset build-swift logs lint lint-swift format-swift
 
 # Build TypeScript
 build:
@@ -48,3 +48,15 @@ sync-reset:
 # View Cloud Function logs
 logs:
 	gcloud functions logs read $(FUNCTION_NAME) --gen2 --region=$(REGION) --project=$(GCP_PROJECT_ID) --limit=50
+
+# Lint TypeScript
+lint:
+	npm run lint
+
+# Lint Swift
+lint-swift:
+	swift-format lint local/Sources/main.swift
+
+# Format Swift
+format-swift:
+	swift-format format -i local/Sources/main.swift

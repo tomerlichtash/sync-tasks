@@ -11,12 +11,7 @@ export class GoogleTasksClient {
   private tasksApi: tasks_v1.Tasks;
   private taskListId: string;
 
-  constructor(
-    clientId: string,
-    clientSecret: string,
-    refreshToken: string,
-    taskListId: string
-  ) {
+  constructor(clientId: string, clientSecret: string, refreshToken: string, taskListId: string) {
     const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
     oauth2Client.setCredentials({ refresh_token: refreshToken });
 
@@ -94,7 +89,7 @@ export class GoogleTasksClient {
   async findOrCreateTaskList(name: string): Promise<string> {
     // Check if list already exists
     const lists = await this.getTaskLists();
-    const existing = lists.find(l => l.title === name);
+    const existing = lists.find((l) => l.title === name);
     if (existing?.id) {
       return existing.id;
     }
