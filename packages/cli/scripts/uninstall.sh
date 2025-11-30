@@ -1,10 +1,10 @@
 #!/bin/bash
 set -e
 
-PLIST_DST="$HOME/Library/LaunchAgents/com.tasks-sync.plist"
+PLIST_DST="$HOME/Library/LaunchAgents/com.sync-tasks.plist"
 
 # Stop if running
-if launchctl list | grep -q "com.tasks-sync"; then
+if launchctl list | grep -q "com.sync-tasks"; then
     launchctl unload "$PLIST_DST"
     echo "Stopped Tasks Sync"
 fi
@@ -18,5 +18,5 @@ fi
 echo ""
 echo "✓ Tasks Sync uninstalled"
 echo ""
-echo "Note: Local sync state preserved at ~/.tasks-sync-state.json"
+echo "Note: Local sync state preserved at ~/.sync-tasks-state.json"
 echo "      Delete it manually if you want a fresh start."

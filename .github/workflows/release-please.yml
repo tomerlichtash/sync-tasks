@@ -66,7 +66,7 @@ jobs:
 
       - name: Deploy to Cloud Functions
         run: |
-          gcloud functions deploy tasks-sync \
+          gcloud functions deploy sync-tasks \
             --gen2 \
             --runtime=nodejs20 \
             --trigger-http \

@@ -1,12 +1,12 @@
 include .env
 export
 
-FUNCTION_NAME := tasks-sync
+FUNCTION_NAME := sync-tasks
 SERVER_DIR := packages/server
 CLI_DIR := packages/cli
 
-# Get webhook URL from deployed function
-WEBHOOK_URL := $(shell gcloud functions describe $(FUNCTION_NAME) --gen2 --region=$(GCP_REGION) --project=$(GCP_PROJECT_ID) --format='value(serviceConfig.uri)')
+# Get webhook URL from deployed function (lazy evaluation)
+WEBHOOK_URL = $(shell gcloud functions describe $(FUNCTION_NAME) --gen2 --region=$(GCP_REGION) --project=$(GCP_PROJECT_ID) --format='value(serviceConfig.uri)' 2>/dev/null)
 
 .PHONY: build test deploy sync sync-force sync-reset build-swift logs lint lint-swift format-swift
 
@@ -34,17 +34,18 @@ deploy: build
 build-swift:
 	cd $(CLI_DIR) && swift build -c release
 
-# Sync reminders
+# Sync reminders with optional flags
+# Usage: make sync [ARGS="--force|--reset"]
 sync:
-	WEBHOOK_URL=$(WEBHOOK_URL) WEBHOOK_SECRET=$(WEBHOOK_SECRET) $(CLI_DIR)/.build/release/tasks-sync
+	WEBHOOK_URL=$(WEBHOOK_URL) WEBHOOK_SECRET=$(WEBHOOK_SECRET) $(CLI_DIR)/.build/release/sync-tasks $(ARGS)
 
 # Force sync all reminders (updates existing)
 sync-force:
-	WEBHOOK_URL=$(WEBHOOK_URL) WEBHOOK_SECRET=$(WEBHOOK_SECRET) $(CLI_DIR)/.build/release/tasks-sync --force
+	$(MAKE) sync ARGS="--force"
 
 # Reset sync state and sync all
 sync-reset:
-	WEBHOOK_URL=$(WEBHOOK_URL) WEBHOOK_SECRET=$(WEBHOOK_SECRET) $(CLI_DIR)/.build/release/tasks-sync --reset
+	$(MAKE) sync ARGS="--reset"
 
 # View Cloud Function logs
 logs:

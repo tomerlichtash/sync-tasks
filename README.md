@@ -31,9 +31,9 @@ Automatically sync your iOS Reminders to Google Tasks. Reminders are synced to m
 ### 1. Clone and Install
 
 ```bash
-cd /path/to/tasks-sync
+cd /path/to/sync-tasks
 cp .env.example .env
-npm install
+cd packages/server && npm install
 ```
 
 ### 2. Configure Environment
@@ -83,7 +83,8 @@ gcloud firestore databases create --location=us-central1 --project=$GCP_PROJECT_
 4. Get refresh token:
 
 ```bash
-npx ts-node deploy/get-google-token.ts YOUR_CLIENT_ID YOUR_CLIENT_SECRET
+cd packages/server
+npm run get-token -- YOUR_CLIENT_ID YOUR_CLIENT_SECRET
 ```
 
 ### 5. Store Secrets
@@ -92,7 +93,7 @@ npx ts-node deploy/get-google-token.ts YOUR_CLIENT_ID YOUR_CLIENT_SECRET
 source .env
 
 # Run interactive setup
-./deploy/setup-secrets.sh
+./packages/server/scripts/setup-secrets.sh
 
 # Or manually create secrets:
 echo -n "your-value" | gcloud secrets create SECRET_NAME --data-file=- --project=$GCP_PROJECT_ID
@@ -112,7 +113,7 @@ source .env
 npm run build
 
 # Deploy
-gcloud functions deploy tasks-sync \
+gcloud functions deploy sync-tasks \
   --gen2 \
   --region=us-central1 \
   --source=. \
@@ -122,13 +123,13 @@ gcloud functions deploy tasks-sync \
   --project=$GCP_PROJECT_ID
 
 # Get the function URL and webhook secret (save these!)
-gcloud functions describe tasks-sync \
+gcloud functions describe sync-tasks \
   --gen2 \
   --region=us-central1 \
   --project=$GCP_PROJECT_ID \
   --format='value(serviceConfig.uri)'
 
-gcloud functions describe tasks-sync \
+gcloud functions describe sync-tasks \
   --gen2 \
   --region=us-central1 \
   --project=$GCP_PROJECT_ID \
@@ -138,7 +139,7 @@ gcloud functions describe tasks-sync \
 ### 7. Build Local CLI
 
 ```bash
-cd local
+cd packages/cli
 swift build -c release
 ```
 
@@ -147,7 +148,7 @@ swift build -c release
 ```bash
 WEBHOOK_URL="https://YOUR_FUNCTION_URL" \
 WEBHOOK_SECRET="YOUR_SECRET" \
-./local/.build/release/tasks-sync
+./packages/cli/.build/release/sync-tasks
 ```
 
 First run will prompt for Reminders access - grant it in System Settings → Privacy & Security → Reminders.
@@ -157,37 +158,37 @@ First run will prompt for Reminders access - grant it in System Settings → Pri
 Run the sync automatically every 15 minutes using the provided scripts:
 
 ```bash
-cd local
+cd packages/cli
 
 # Install and start (builds automatically if needed)
 WEBHOOK_URL="https://YOUR_FUNCTION_URL" \
 WEBHOOK_SECRET="YOUR_SECRET" \
-./install.sh
+./scripts/install.sh
 
 # Check status and logs
-./status.sh
+./scripts/status.sh
 
 # Stop automation
-./stop.sh
+./scripts/stop.sh
 
 # Start automation
-./start.sh
+./scripts/start.sh
 
 # Uninstall completely
-./uninstall.sh
+./scripts/uninstall.sh
 ```
 
 ## CLI Options
 
 ```bash
 # Normal sync (only new reminders)
-./local/.build/release/tasks-sync
+./packages/cli/.build/release/sync-tasks
 
 # Reset local state and re-sync all reminders
-./local/.build/release/tasks-sync --reset
+./packages/cli/.build/release/sync-tasks --reset
 
 # Force re-sync everything (may create duplicates)
-./local/.build/release/tasks-sync --force
+./packages/cli/.build/release/sync-tasks --force
 ```
 
 ## How It Works
@@ -196,30 +197,40 @@ WEBHOOK_SECRET="YOUR_SECRET" \
 2. Each reminder is sent to the **Cloud Function** via webhook
 3. Cloud Function finds/creates matching Google Tasks list
 4. Task is created in Google Tasks
-5. Sync state is saved locally (`~/.tasks-sync-state.json`) to avoid duplicates
+5. Sync state is saved locally (`~/.sync-tasks-state.json`) to avoid duplicates
 
 ## File Structure
 
 ```
-tasks-sync/
-├── src/                      # Cloud Function (TypeScript)
-│   ├── index.ts              # HTTP handler
-│   ├── google/tasks.ts       # Google Tasks API client
-│   ├── storage/firestore.ts  # State tracking
-│   └── config/secrets.ts     # Secret Manager
-├── local/                    # Local CLI (Swift)
-│   ├── Sources/main.swift    # EventKit sync
-│   ├── Package.swift
-│   ├── install.sh            # Install automation
-│   ├── start.sh              # Start automation
-│   ├── stop.sh               # Stop automation
-│   ├── status.sh             # Check status
-│   └── uninstall.sh          # Remove automation
-├── deploy/
-│   ├── setup-secrets.sh
-│   └── get-google-token.ts
+sync-tasks/
+├── packages/
+│   ├── server/                   # Cloud Function (TypeScript)
+│   │   ├── src/
+│   │   │   ├── index.ts          # HTTP handler
+│   │   │   ├── google/tasks.ts   # Google Tasks API client
+│   │   │   ├── storage/firestore.ts  # State tracking
+│   │   │   └── config/secrets.ts # Secret Manager
+│   │   ├── scripts/
+│   │   │   ├── deploy.sh
+│   │   │   └── setup-secrets.sh
+│   │   ├── tools/
+│   │   │   └── get-google-token.ts
+│   │   └── package.json
+│   └── cli/                      # Local CLI (Swift)
+│       ├── Sources/TasksSync/
+│       │   └── main.swift        # EventKit sync
+│       ├── Package.swift
+│       ├── scripts/
+│       │   ├── install.sh        # Install automation
+│       │   ├── start.sh          # Start automation
+│       │   ├── stop.sh           # Stop automation
+│       │   ├── status.sh         # Check status
+│       │   └── uninstall.sh      # Remove automation
+│       └── launchd/
+│           └── com.sync-tasks.plist
 ├── .env.example
-└── package.json
+├── Makefile
+└── README.md
 ```
 
 ## Cost
@@ -233,22 +244,24 @@ All within GCP free tier for personal use:
 
 **"Invalid webhook secret"**
 - Check your `WEBHOOK_SECRET` matches what's deployed
-- Get current secret: `gcloud functions describe tasks-sync --gen2 --region=us-central1 --format='value(serviceConfig.environmentVariables.WEBHOOK_SECRET)'`
+- Get current secret: `gcloud functions describe sync-tasks --gen2 --region=us-central1 --format='value(serviceConfig.environmentVariables.WEBHOOK_SECRET)'`
 
 **"Access to Reminders was denied"**
 - Go to System Settings → Privacy & Security → Reminders
-- Enable access for the tasks-sync binary
+- Enable access for the sync-tasks binary
 
 **Tasks not appearing in correct list**
-- Check Cloud Function logs: `gcloud functions logs read tasks-sync --gen2 --region=us-central1 --limit=20`
+- Check Cloud Function logs: `gcloud functions logs read sync-tasks --gen2 --region=us-central1 --limit=20`
 - Look for "Using task list" entries
 
 **Duplicate tasks**
-- Delete `~/.tasks-sync-state.json` and tasks in Google, then run with `--reset`
+- Delete `~/.sync-tasks-state.json` and tasks in Google, then run with `--reset`
 
 ## Testing
 
 ```bash
+cd packages/server
+
 # Run tests
 npm test
 
@@ -257,6 +270,12 @@ npm run test:watch
 
 # Run tests with coverage
 npm run test:coverage
+```
+
+Or use the Makefile from root:
+
+```bash
+make test
 ```
 
 ## License

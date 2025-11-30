@@ -7,11 +7,11 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.tasks-sync</string>
+    <string>com.sync-tasks</string>
 
     <key>ProgramArguments</key>
     <array>
-        <string>/path/to/tasks-sync</string>
+        <string>/path/to/sync-tasks</string>
     </array>
 
     <key>EnvironmentVariables</key>
@@ -29,9 +29,9 @@
     <true/>
 
     <key>StandardOutPath</key>
-    <string>/tmp/tasks-sync.log</string>
+    <string>/tmp/sync-tasks.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/tmp/tasks-sync.error.log</string>
+    <string>/tmp/sync-tasks.error.log</string>
 </dict>
 </plist>

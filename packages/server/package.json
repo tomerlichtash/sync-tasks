@@ -1,5 +1,5 @@
 {
-  "name": "tasks-sync",
+  "name": "sync-tasks",
   "version": "1.2.0",
   "description": "Sync iOS Reminders to Google Tasks",
   "main": "dist/index.js",

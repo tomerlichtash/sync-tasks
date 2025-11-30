@@ -5,7 +5,7 @@ import Foundation
 let webhookURL = ProcessInfo.processInfo.environment["WEBHOOK_URL"] ?? ""
 let webhookSecret = ProcessInfo.processInfo.environment["WEBHOOK_SECRET"] ?? ""
 let syncStateFile = FileManager.default.homeDirectoryForCurrentUser
-  .appendingPathComponent(".tasks-sync-state.json")
+  .appendingPathComponent(".sync-tasks-state.json")
 let forceSync = CommandLine.arguments.contains("--force")
 let resetSync = CommandLine.arguments.contains("--reset")
 
@@ -124,7 +124,7 @@ func syncReminder(_ reminder: EKReminder) -> (uid: String, synced: SyncedReminde
 func main() {
   guard !webhookURL.isEmpty else {
     print("Error: WEBHOOK_URL environment variable is required")
-    print("Usage: WEBHOOK_URL=https://... WEBHOOK_SECRET=... tasks-sync")
+    print("Usage: WEBHOOK_URL=https://... WEBHOOK_SECRET=... sync-tasks")
     exit(1)
   }
 
