@@ -28,7 +28,8 @@ deploy: build
 		--source=. \
 		--allow-unauthenticated \
 		--region=$(GCP_REGION) \
-		--project=$(GCP_PROJECT_ID)
+		--project=$(GCP_PROJECT_ID) \
+		--set-env-vars="GCP_PROJECT_ID=$(GCP_PROJECT_ID),WEBHOOK_SECRET=$(WEBHOOK_SECRET)"
 
 # Build Swift CLI
 build-swift:
