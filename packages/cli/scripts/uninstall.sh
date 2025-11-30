@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 PLIST_DST="$HOME/Library/LaunchAgents/com.tasks-sync.plist"
 

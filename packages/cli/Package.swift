@@ -7,7 +7,7 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "tasks-sync",
-            path: "Sources"
+            path: "Sources/TasksSync"
         )
     ]
 )

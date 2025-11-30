@@ -19,11 +19,15 @@ jobs:
         id: release
         with:
           release-type: node
+          path: packages/server
 
   deploy:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created }}
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/server
     steps:
       - uses: actions/checkout@v4
 
@@ -32,12 +36,13 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          cache-dependency-path: packages/server/package-lock.json
 
       - name: Cache node_modules
         uses: actions/cache@v4
         with:
-          path: node_modules
-          key: ${{ runner.os }}-node-modules-${{ hashFiles('package-lock.json') }}
+          path: packages/server/node_modules
+          key: ${{ runner.os }}-node-modules-${{ hashFiles('packages/server/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-node-modules-
 
@@ -68,5 +73,5 @@ jobs:
             --entry-point=syncHandler \
             --source=. \
             --allow-unauthenticated \
-            --region=us-central1 \
+            --region=${{ secrets.GCP_REGION }} \
             --project=${{ secrets.GCP_PROJECT_ID }}

@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Template file - DO NOT USE DIRECTLY
+  Run scripts/install.sh to generate the actual plist with your configuration
+-->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -7,13 +11,13 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/tomerlichtash/dev/tasks-sync/local/.build/release/tasks-sync</string>
+        <string>/path/to/tasks-sync</string>
     </array>
 
     <key>EnvironmentVariables</key>
     <dict>
         <key>WEBHOOK_URL</key>
-        <string>https://tasks-sync-qhk4x63iiq-uc.a.run.app</string>
+        <string>YOUR_WEBHOOK_URL</string>
         <key>WEBHOOK_SECRET</key>
         <string>YOUR_SECRET_HERE</string>
     </dict>

@@ -14,7 +14,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "deploy": "make deploy"
+    "deploy": "make deploy",
+    "get-token": "ts-node tools/get-google-token.ts"
   },
   "dependencies": {
     "@google-cloud/firestore": "^7.1.0",

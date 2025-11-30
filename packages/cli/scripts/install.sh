@@ -2,10 +2,11 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CLI_DIR="$(dirname "$SCRIPT_DIR")"
 PLIST_NAME="com.tasks-sync.plist"
-PLIST_SRC="$SCRIPT_DIR/$PLIST_NAME"
+PLIST_SRC="$CLI_DIR/launchd/$PLIST_NAME"
 PLIST_DST="$HOME/Library/LaunchAgents/$PLIST_NAME"
-BINARY="$SCRIPT_DIR/.build/release/tasks-sync"
+BINARY="$CLI_DIR/.build/release/tasks-sync"
 
 echo "=== Tasks Sync Installer ==="
 echo ""
@@ -13,7 +14,7 @@ echo ""
 # Check if binary exists
 if [ ! -f "$BINARY" ]; then
     echo "Building tasks-sync..."
-    cd "$SCRIPT_DIR"
+    cd "$CLI_DIR"
     swift build -c release
 fi
 
@@ -81,5 +82,5 @@ echo ""
 echo "Commands:"
 echo "  View logs:    tail -f /tmp/tasks-sync.log"
 echo "  Run now:      launchctl start com.tasks-sync"
-echo "  Stop:         ./stop.sh"
-echo "  Uninstall:    ./uninstall.sh"
+echo "  Stop:         scripts/stop.sh"
+echo "  Uninstall:    scripts/uninstall.sh"
