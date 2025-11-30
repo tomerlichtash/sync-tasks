@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "tasks-sync",
+    name: "sync-tasks",
     platforms: [.macOS(.v12)],
     targets: [
         .executableTarget(
-            name: "tasks-sync",
-            path: "Sources"
+            name: "sync-tasks",
+            path: "Sources/TasksSync"
         )
     ]
 )

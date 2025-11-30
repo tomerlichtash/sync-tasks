@@ -7,7 +7,7 @@
  * 3. Download the JSON credentials file
  *
  * Usage:
- *   npx ts-node deploy/get-google-token.ts <client_id> <client_secret>
+ *   npx ts-node tools/get-google-token.ts <client_id> <client_secret>
  *
  * This will:
  * 1. Open a browser for authentication
@@ -81,7 +81,7 @@ async function getRefreshToken(clientId: string, clientSecret: string): Promise<
 // Main
 const args = process.argv.slice(2);
 if (args.length !== 2) {
-  console.log('Usage: npx ts-node deploy/get-google-token.ts <client_id> <client_secret>');
+  console.log('Usage: npx ts-node tools/get-google-token.ts <client_id> <client_secret>');
   console.log('\nTo get these values:');
   console.log('1. Go to https://console.cloud.google.com/apis/credentials');
   console.log('2. Create OAuth 2.0 Client ID (Desktop app type)');

@@ -2,18 +2,19 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PLIST_NAME="com.tasks-sync.plist"
-PLIST_SRC="$SCRIPT_DIR/$PLIST_NAME"
+CLI_DIR="$(dirname "$SCRIPT_DIR")"
+PLIST_NAME="com.sync-tasks.plist"
+PLIST_SRC="$CLI_DIR/launchd/$PLIST_NAME"
 PLIST_DST="$HOME/Library/LaunchAgents/$PLIST_NAME"
-BINARY="$SCRIPT_DIR/.build/release/tasks-sync"
+BINARY="$CLI_DIR/.build/release/sync-tasks"
 
 echo "=== Tasks Sync Installer ==="
 echo ""
 
 # Check if binary exists
 if [ ! -f "$BINARY" ]; then
-    echo "Building tasks-sync..."
-    cd "$SCRIPT_DIR"
+    echo "Building sync-tasks..."
+    cd "$CLI_DIR"
     swift build -c release
 fi
 
@@ -38,7 +39,7 @@ cat > "$PLIST_DST" << EOF
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.tasks-sync</string>
+    <string>com.sync-tasks</string>
 
     <key>ProgramArguments</key>
     <array>
@@ -60,10 +61,10 @@ cat > "$PLIST_DST" << EOF
     <true/>
 
     <key>StandardOutPath</key>
-    <string>/tmp/tasks-sync.log</string>
+    <string>/tmp/sync-tasks.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/tmp/tasks-sync.error.log</string>
+    <string>/tmp/sync-tasks.error.log</string>
 </dict>
 </plist>
 EOF
@@ -79,7 +80,7 @@ echo ""
 echo "Sync will run every 15 minutes and on login."
 echo ""
 echo "Commands:"
-echo "  View logs:    tail -f /tmp/tasks-sync.log"
-echo "  Run now:      launchctl start com.tasks-sync"
-echo "  Stop:         ./stop.sh"
-echo "  Uninstall:    ./uninstall.sh"
+echo "  View logs:    tail -f /tmp/sync-tasks.log"
+echo "  Run now:      launchctl start com.sync-tasks"
+echo "  Stop:         scripts/stop.sh"
+echo "  Uninstall:    scripts/uninstall.sh"

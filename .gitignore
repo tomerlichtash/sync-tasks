@@ -1,9 +1,24 @@
+# Dependencies
 node_modules/
+
+# Build outputs
 dist/
+packages/server/dist/
+
+# Environment
 .env
+
+# Logs
 *.log
+
+# OS
 .DS_Store
 
 # Swift build artifacts
-local/.build/
-local/.swiftpm/
+packages/cli/.build/
+packages/cli/.swiftpm/
+
+# IDE
+.idea/
+.vscode/
+*.swp

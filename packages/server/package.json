@@ -1,5 +1,5 @@
 {
-  "name": "tasks-sync",
+  "name": "sync-tasks",
   "version": "1.2.0",
   "description": "Sync iOS Reminders to Google Tasks",
   "main": "dist/index.js",
@@ -14,7 +14,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "deploy": "make deploy"
+    "deploy": "make deploy",
+    "get-token": "ts-node tools/get-google-token.ts"
   },
   "dependencies": {
     "@google-cloud/firestore": "^7.1.0",
