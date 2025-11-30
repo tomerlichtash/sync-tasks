@@ -7,4 +7,5 @@ module.exports = {
     'src/**/*.ts',
     '!src/**/__tests__/**',
   ],
+  verbose: true,
 };
