@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/tomerlichtash/sync-tasks/compare/v1.0.0...v1.1.0) (2025-11-30)
+
+
+### Features
+
+* test release ([#8](https://github.com/tomerlichtash/sync-tasks/issues/8)) ([f733433](https://github.com/tomerlichtash/sync-tasks/commit/f733433f576d6aba967ce3ff74290416c39306c2))
+
 ## 1.0.0 (2025-11-30)
 
 
