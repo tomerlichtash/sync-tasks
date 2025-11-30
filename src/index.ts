@@ -12,7 +12,7 @@ export interface WebhookPayload {
   list?: string;
   dueDate?: string;
   uid?: string;
-  force?: boolean;  // Force re-sync even if already synced
+  force?: boolean; // Force re-sync even if already synced
 }
 
 export interface SyncResponse {
@@ -71,7 +71,7 @@ export async function createTaskFromWebhook(payload: WebhookPayload): Promise<Sy
 
   // Find or create the matching task list based on reminder's list name
   let targetListId: string;
-  const listName = payload.list || 'Reminders';  // Default list name if none provided
+  const listName = payload.list || 'Reminders'; // Default list name if none provided
 
   try {
     targetListId = await googleClient.findOrCreateTaskList(listName);
@@ -186,7 +186,7 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
           success: true,
           listId,
           listName: req.query.listName,
-          tasks: tasks.map(t => ({ id: t.id, title: t.title, status: t.status })),
+          tasks: tasks.map((t) => ({ id: t.id, title: t.title, status: t.status })),
         });
         return;
       }

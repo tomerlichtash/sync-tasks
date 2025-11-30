@@ -39,11 +39,7 @@ export async function loadSecrets(): Promise<Secrets> {
     throw new Error('GCP_PROJECT_ID environment variable is required');
   }
 
-  const [
-    googleClientId,
-    googleClientSecret,
-    googleRefreshToken,
-  ] = await Promise.all([
+  const [googleClientId, googleClientSecret, googleRefreshToken] = await Promise.all([
     getSecret('google-oauth-client-id', 'GOOGLE_CLIENT_ID', projectId),
     getSecret('google-oauth-client-secret', 'GOOGLE_CLIENT_SECRET', projectId),
     getSecret('google-tasks-refresh-token', 'GOOGLE_REFRESH_TOKEN', projectId),

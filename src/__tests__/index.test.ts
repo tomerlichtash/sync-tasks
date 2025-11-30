@@ -245,7 +245,11 @@ describe('Webhook Handler', () => {
       expect(res._status).toBe(200);
       expect((res._json as { message: string }).message).toBe('Task updated successfully');
       expect((res._json as { taskId: string }).taskId).toBe('existing-task-id');
-      expect(mockUpdateTaskInList).toHaveBeenCalledWith('existing-list-id', 'existing-task-id', expect.any(Object));
+      expect(mockUpdateTaskInList).toHaveBeenCalledWith(
+        'existing-list-id',
+        'existing-task-id',
+        expect.any(Object)
+      );
       expect(mockCreateTaskInList).not.toHaveBeenCalled();
       expect(saveSyncedItem).toHaveBeenCalled();
     });

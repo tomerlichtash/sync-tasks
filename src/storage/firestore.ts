@@ -38,20 +38,24 @@ export async function getAllSyncedItems(): Promise<Map<string, SyncedItem>> {
 }
 
 export async function saveSyncedItem(item: SyncedItem): Promise<void> {
-  await getCollection().doc(item.icloudUid).set({
-    ...item,
-    syncedAt: Timestamp.now(),
-  });
+  await getCollection()
+    .doc(item.icloudUid)
+    .set({
+      ...item,
+      syncedAt: Timestamp.now(),
+    });
 }
 
 export async function updateSyncedItem(
   icloudUid: string,
   updates: Partial<SyncedItem>
 ): Promise<void> {
-  await getCollection().doc(icloudUid).update({
-    ...updates,
-    lastModified: Timestamp.now(),
-  });
+  await getCollection()
+    .doc(icloudUid)
+    .update({
+      ...updates,
+      lastModified: Timestamp.now(),
+    });
 }
 
 export async function deleteSyncedItem(icloudUid: string): Promise<void> {
