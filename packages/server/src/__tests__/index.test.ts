@@ -28,7 +28,12 @@ jest.mock('../google/tasks', () => ({
 }));
 
 import { handleRequest } from '../index';
-import { getSyncedItem, saveSyncedItem, getAllSyncedItems, updateSyncedItem } from '../storage/firestore';
+import {
+  getSyncedItem,
+  saveSyncedItem,
+  getAllSyncedItems,
+  updateSyncedItem,
+} from '../storage/firestore';
 import { GoogleTasksClient } from '../google/tasks';
 
 // Helper to create mock request/response
@@ -338,7 +343,10 @@ describe('Webhook Handler', () => {
       await handleRequest(req, res);
 
       expect(res._status).toBe(200);
-      const response = res._json as { success: boolean; completed: Array<{ uid: string; title: string }> };
+      const response = res._json as {
+        success: boolean;
+        completed: Array<{ uid: string; title: string }>;
+      };
       expect(response.success).toBe(true);
       expect(response.completed).toHaveLength(1);
       expect(response.completed[0].uid).toBe('uid-1');
