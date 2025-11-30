@@ -1,11 +1,12 @@
 import * as functions from '@google-cloud/functions-framework';
+import { Request, Response } from '@google-cloud/functions-framework';
 import { loadSecrets } from './config/secrets';
 import { GoogleTasksClient } from './google/tasks';
 import { saveSyncedItem, getSyncedItem } from './storage/firestore';
 import { Timestamp } from '@google-cloud/firestore';
 import * as crypto from 'crypto';
 
-interface WebhookPayload {
+export interface WebhookPayload {
   title: string;
   notes?: string;
   list?: string;
@@ -14,14 +15,14 @@ interface WebhookPayload {
   force?: boolean;  // Force re-sync even if already synced
 }
 
-interface SyncResponse {
+export interface SyncResponse {
   success: boolean;
   message: string;
   taskId?: string;
   timestamp: string;
 }
 
-async function createTaskFromWebhook(payload: WebhookPayload): Promise<SyncResponse> {
+export async function createTaskFromWebhook(payload: WebhookPayload): Promise<SyncResponse> {
   console.log('Received webhook payload:', JSON.stringify(payload));
   console.log(`List name: "${payload.list}"`);
 
@@ -108,7 +109,7 @@ async function createTaskFromWebhook(payload: WebhookPayload): Promise<SyncRespo
 }
 
 // Cloud Function HTTP handler
-functions.http('syncHandler', async (req, res) => {
+export async function handleRequest(req: Request, res: Response): Promise<void> {
   // Set CORS headers for iOS Shortcuts
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -156,4 +157,7 @@ functions.http('syncHandler', async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   }
-});
+}
+
+// Register the handler
+functions.http('syncHandler', handleRequest);
