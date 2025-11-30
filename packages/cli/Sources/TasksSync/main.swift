@@ -1,6 +1,9 @@
 import EventKit
 import Foundation
 
+// Initialize logger
+let log = CLILogger()
+
 // Configuration
 let webhookURL = ProcessInfo.processInfo.environment["WEBHOOK_URL"] ?? ""
 let webhookSecret = ProcessInfo.processInfo.environment["WEBHOOK_SECRET"] ?? ""
@@ -51,25 +54,30 @@ func saveSyncState(_ state: SyncState) {
   try? data.write(to: syncStateFile)
 }
 
-// Send reminder to webhook - returns synced reminder info if successful
-func syncReminder(_ reminder: EKReminder) -> (uid: String, synced: SyncedReminder)? {
-  let uid = reminder.calendarItemIdentifier
+// Result of syncing a reminder
+enum SyncResult {
+  case success(String, SyncedReminder) // uid, synced reminder
+  case alreadySynced
+  case updated
+  case failed(String) // error message
+  case error(String) // error message
+}
 
-  let listName = reminder.calendar?.title
-  print("  List: \(listName ?? "none")")
+// Send reminder to webhook - returns sync result
+func syncReminder(_ reminder: EKReminder) -> SyncResult {
+  let uid = reminder.calendarItemIdentifier
 
   let payload = WebhookPayload(
     title: reminder.title ?? "Untitled",
     notes: reminder.notes,
-    list: listName,
+    list: reminder.calendar?.title,
     dueDate: reminder.dueDateComponents?.date?.ISO8601Format(),
     uid: uid,
     force: forceSync ? true : nil
   )
 
   guard let url = URL(string: "\(webhookURL)?secret=\(webhookSecret)") else {
-    print("Invalid webhook URL")
-    return nil
+    return .error("Invalid webhook URL")
   }
 
   var request = URLRequest(url: url)
@@ -78,59 +86,58 @@ func syncReminder(_ reminder: EKReminder) -> (uid: String, synced: SyncedReminde
   request.httpBody = try? JSONEncoder().encode(payload)
 
   let semaphore = DispatchSemaphore(value: 0)
-  var result: (uid: String, synced: SyncedReminder)?
+  var syncResult: SyncResult = .error("Unknown error")
 
   URLSession.shared.dataTask(with: request) { data, response, error in
     defer { semaphore.signal() }
 
     if let error = error {
-      print("Error syncing '\(reminder.title ?? "")': \(error.localizedDescription)")
+      syncResult = .error(error.localizedDescription)
       return
     }
 
     guard let data = data,
       let response = try? JSONDecoder().decode(WebhookResponse.self, from: data)
     else {
-      print("✗ Invalid response for '\(reminder.title ?? "")'")
+      syncResult = .error("Invalid response")
       return
     }
 
     if response.success {
-      if response.message == "Already synced" {
-        print("⏭ Skipped (already synced): \(reminder.title ?? "")")
-      } else if response.message == "Task updated successfully" {
-        print("✓ Updated: \(reminder.title ?? "")")
-      } else {
-        print("✓ Synced: \(reminder.title ?? "")")
-      }
-      result = (
-        uid: uid,
-        synced: SyncedReminder(
-          googleTaskId: response.taskId,
-          syncedAt: Date(),
-          title: reminder.title ?? ""
-        )
+      let synced = SyncedReminder(
+        googleTaskId: response.taskId,
+        syncedAt: Date(),
+        title: reminder.title ?? ""
       )
+
+      if response.message == "Already synced" {
+        syncResult = .alreadySynced
+      } else if response.message == "Task updated successfully" {
+        syncResult = .updated
+      } else {
+        syncResult = .success(uid, synced)
+      }
     } else {
-      print("✗ Failed: \(reminder.title ?? "") - \(response.message)")
+      syncResult = .failed(response.message)
     }
   }.resume()
 
   semaphore.wait()
-  return result
+  return syncResult
 }
 
 // Main
 func main() {
   guard !webhookURL.isEmpty else {
-    print("Error: WEBHOOK_URL environment variable is required")
-    print("Usage: WEBHOOK_URL=https://... WEBHOOK_SECRET=... sync-tasks")
+    log.error("WEBHOOK_URL environment variable is required")
+    log.info("Usage: WEBHOOK_URL=https://... WEBHOOK_SECRET=... sync-tasks")
     exit(1)
   }
 
   let eventStore = EKEventStore()
 
   // Request access to reminders
+  log.startSpinner("Requesting access to Reminders")
   let semaphore = DispatchSemaphore(value: 0)
   var accessGranted = false
 
@@ -138,7 +145,7 @@ func main() {
     eventStore.requestFullAccessToReminders { granted, error in
       accessGranted = granted
       if let error = error {
-        print("Error requesting access: \(error.localizedDescription)")
+        log.error("Error requesting access: \(error.localizedDescription)")
       }
       semaphore.signal()
     }
@@ -146,7 +153,7 @@ func main() {
     eventStore.requestAccess(to: .reminder) { granted, error in
       accessGranted = granted
       if let error = error {
-        print("Error requesting access: \(error.localizedDescription)")
+        log.error("Error requesting access: \(error.localizedDescription)")
       }
       semaphore.signal()
     }
@@ -155,12 +162,15 @@ func main() {
   semaphore.wait()
 
   guard accessGranted else {
-    print("Error: Access to Reminders was denied")
-    print("Grant access in System Settings → Privacy & Security → Reminders")
+    log.stopSpinner(success: false, message: "Access to Reminders denied")
+    log.info("Grant access in System Settings → Privacy & Security → Reminders")
     exit(1)
   }
 
+  log.stopSpinner(success: true, message: "Access granted")
+
   // Fetch incomplete reminders
+  log.startSpinner("Fetching reminders")
   let predicate = eventStore.predicateForIncompleteReminders(
     withDueDateStarting: nil,
     ending: nil,
@@ -176,13 +186,12 @@ func main() {
   }
 
   fetchSemaphore.wait()
-
-  print("Found \(reminders.count) incomplete reminders")
+  log.stopSpinner(success: true, message: "Found \(reminders.count) incomplete reminders")
 
   // Handle reset
   var state = loadSyncState()
   if resetSync {
-    print("Resetting sync state...")
+    log.info("Resetting sync state...")
     state = SyncState(syncedReminders: [:])
     saveSyncState(state)
   }
@@ -190,22 +199,49 @@ func main() {
   let previousCount = state.syncedReminders.count
 
   for reminder in reminders {
+    let title = reminder.title ?? "Untitled"
+
     // Skip if already synced (unless force flag is set)
     if !forceSync && state.syncedReminders[reminder.calendarItemIdentifier] != nil {
-      print("⏭ Skipped: \(reminder.title ?? "Untitled")")
+      log.info("⏭ Skipped: \(title)")
       continue
     }
 
-    print("Syncing: \(reminder.title ?? "Untitled")")
-    if let result = syncReminder(reminder) {
-      state.syncedReminders[result.uid] = result.synced
+    // Start spinner before sync
+    log.startSpinner("Syncing: \(title)")
+
+    // Perform sync
+    let result = syncReminder(reminder)
+
+    // Handle result and stop spinner with appropriate message
+    switch result {
+    case .success(let uid, let synced):
+      log.stopSpinner(success: true, message: "✓ Synced: \(title)")
+      state.syncedReminders[uid] = synced
+
+    case .alreadySynced:
+      log.stopSpinner(success: true, message: "⏭ Already synced: \(title)")
+
+    case .updated:
+      log.stopSpinner(success: true, message: "✓ Updated: \(title)")
+      state.syncedReminders[reminder.calendarItemIdentifier] = SyncedReminder(
+        googleTaskId: nil,
+        syncedAt: Date(),
+        title: title
+      )
+
+    case .failed(let message):
+      log.stopSpinner(success: false, message: "✗ Failed: \(title) - \(message)")
+
+    case .error(let message):
+      log.stopSpinner(success: false, message: "✗ Error: \(title) - \(message)")
     }
   }
 
   saveSyncState(state)
 
   let newlySynced = state.syncedReminders.count - previousCount
-  print("Sync complete: \(newlySynced) new reminders synced")
+  log.success("Sync complete: \(newlySynced) new reminders synced")
 }
 
 main()
