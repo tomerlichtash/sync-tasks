@@ -1,20 +1,23 @@
-name: Deploy
+name: Release & Deploy
 
 on:
   push:
     branches: [main]
 
 jobs:
-  deploy:
+  release:
     runs-on: ubuntu-latest
-    if: contains(github.event.head_commit.message, 'RELEASE')
-
     permissions:
-      contents: read
+      contents: write
+      issues: write
+      pull-requests: write
       id-token: write
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -38,6 +41,11 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Semantic Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
