@@ -3,12 +3,20 @@ name: CI
 on:
   pull_request:
     branches: [main]
+    types: [opened, edited, synchronize, reopened]
 
 defaults:
   run:
     working-directory: packages/server
 
 jobs:
+  pr-title:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   lint:
     runs-on: ubuntu-latest
     steps:
