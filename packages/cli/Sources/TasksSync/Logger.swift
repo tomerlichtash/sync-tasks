@@ -49,6 +49,24 @@ class CLILogger {
         print(formatLog("ERROR", message, color: .red))
     }
 
+    func skipped(_ message: String) {
+        stopSpinner()
+        let timestamp = getCurrentTimestamp()
+        print("[\(timestamp)]".lightBlack + " " + "⏭".cyan + " " + message)
+    }
+
+    func synced(_ message: String) {
+        stopSpinner()
+        let timestamp = getCurrentTimestamp()
+        print("[\(timestamp)]".lightBlack + " " + "✓".green + " " + message)
+    }
+
+    func failed(_ message: String) {
+        stopSpinner()
+        let timestamp = getCurrentTimestamp()
+        print("[\(timestamp)]".lightBlack + " " + "✗".red + " " + message)
+    }
+
     // MARK: - Spinner Methods
 
     func startSpinner(_ message: String) {
@@ -81,38 +99,60 @@ class CLILogger {
 class Spinner {
     private let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
     private var currentFrame = 0
-    private var timer: Timer?
+    private var spinnerThread: Thread?
     private let message: String
     private var isRunning = false
+    private let lock = NSLock()
 
     init(message: String) {
         self.message = message
     }
 
     func start() {
-        guard !isRunning else { return }
+        lock.lock()
+        guard !isRunning else {
+            lock.unlock()
+            return
+        }
         isRunning = true
+        lock.unlock()
+
         hideCursor()
 
-        // Update spinner every 80ms
-        timer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            self.render()
-            self.currentFrame = (self.currentFrame + 1) % self.frames.count
-        }
+        // Run spinner on background thread to avoid RunLoop blocking
+        spinnerThread = Thread { [weak self] in
+            while true {
+                self?.lock.lock()
+                let running = self?.isRunning ?? false
+                self?.lock.unlock()
 
-        RunLoop.current.add(timer!, forMode: .common)
+                if !running { break }
+
+                self?.render()
+                Thread.sleep(forTimeInterval: 0.08)
+            }
+        }
+        spinnerThread?.start()
     }
 
     func stop(success: Bool = true, message: String? = nil) {
-        guard isRunning else { return }
+        lock.lock()
+        guard isRunning else {
+            lock.unlock()
+            return
+        }
         isRunning = false
+        lock.unlock()
 
-        timer?.invalidate()
-        timer = nil
+        // Wait for thread to finish
+        while spinnerThread?.isFinished == false {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        spinnerThread = nil
 
         // Clear the line
         print("\r\u{001B}[K", terminator: "")
+        fflush(stdout)
 
         // Print final message with symbol
         if let finalMessage = message {
@@ -125,7 +165,11 @@ class Spinner {
     }
 
     private func render() {
+        lock.lock()
         let frame = frames[currentFrame].cyan
+        currentFrame = (currentFrame + 1) % frames.count
+        lock.unlock()
+
         let timestamp = getCurrentTimestamp()
         print("\r\u{001B}[K[\(timestamp)]".lightBlack + " " + frame + " " + message, terminator: "")
         fflush(stdout)

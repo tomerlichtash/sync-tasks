@@ -200,15 +200,17 @@ func main() {
 
   for reminder in reminders {
     let title = reminder.title ?? "Untitled"
+    let listName = reminder.calendar?.title ?? "Unknown"
+    let prefix = "[\(listName)] \(title)"
 
     // Skip if already synced (unless force flag is set)
     if !forceSync && state.syncedReminders[reminder.calendarItemIdentifier] != nil {
-      log.info("⏭ Skipped: \(title)")
+      log.skipped("\(prefix) (skipped)")
       continue
     }
 
     // Start spinner before sync
-    log.startSpinner("Syncing: \(title)")
+    log.startSpinner(prefix)
 
     // Perform sync
     let result = syncReminder(reminder)
@@ -216,14 +218,14 @@ func main() {
     // Handle result and stop spinner with appropriate message
     switch result {
     case .success(let uid, let synced):
-      log.stopSpinner(success: true, message: "✓ Synced: \(title)")
+      log.synced("\(prefix) (synced)")
       state.syncedReminders[uid] = synced
 
     case .alreadySynced:
-      log.stopSpinner(success: true, message: "⏭ Already synced: \(title)")
+      log.skipped("\(prefix) (already synced)")
 
     case .updated:
-      log.stopSpinner(success: true, message: "✓ Updated: \(title)")
+      log.synced("\(prefix) (updated)")
       state.syncedReminders[reminder.calendarItemIdentifier] = SyncedReminder(
         googleTaskId: nil,
         syncedAt: Date(),
@@ -231,10 +233,10 @@ func main() {
       )
 
     case .failed(let message):
-      log.stopSpinner(success: false, message: "✗ Failed: \(title) - \(message)")
+      log.failed("\(prefix) (\(message))")
 
     case .error(let message):
-      log.stopSpinner(success: false, message: "✗ Error: \(title) - \(message)")
+      log.failed("\(prefix) (\(message))")
     }
   }
 
