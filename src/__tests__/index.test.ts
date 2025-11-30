@@ -221,10 +221,12 @@ describe('Webhook Handler', () => {
 
       const mockUpdateTaskInList = jest.fn().mockResolvedValue(undefined);
       const mockCreateTaskInList = jest.fn().mockResolvedValue('new-task-id');
+      const mockTaskExistsInList = jest.fn().mockResolvedValue(true);
       (GoogleTasksClient as jest.Mock).mockImplementation(() => ({
         findOrCreateTaskList: jest.fn().mockResolvedValue('mock-list-id'),
         createTaskInList: mockCreateTaskInList,
         updateTaskInList: mockUpdateTaskInList,
+        taskExistsInList: mockTaskExistsInList,
       }));
 
       const req = createMockRequest({
