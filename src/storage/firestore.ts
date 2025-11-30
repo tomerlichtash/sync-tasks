@@ -5,6 +5,7 @@ const db = new Firestore();
 export interface SyncedItem {
   icloudUid: string;
   googleTaskId: string;
+  googleListId: string;
   title: string;
   syncedAt: Timestamp;
   lastModified: Timestamp;

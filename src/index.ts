@@ -37,7 +37,7 @@ export async function createTaskFromWebhook(payload: WebhookPayload): Promise<Sy
   // Generate a UID if not provided
   const uid = payload.uid || crypto.randomUUID();
 
-  // Check if already synced (idempotency) - but allow force re-sync
+  // Check if already synced
   const existing = await getSyncedItem(uid);
   if (existing && !payload.force) {
     console.log(`Reminder ${uid} already synced as task ${existing.googleTaskId}`);
@@ -81,19 +81,50 @@ export async function createTaskFromWebhook(payload: WebhookPayload): Promise<Sy
     throw new Error(`Cannot create task list: ${err}`);
   }
 
-  // Create task in Google Tasks
-  const taskId = await googleClient.createTaskInList(targetListId, {
-    title: payload.title,
-    notes: payload.notes || undefined,
-    due: dueDate,
-  });
+  let taskId: string;
+  let message: string;
 
-  console.log(`Created Google Task: ${taskId}`);
+  // If force and existing, check if task still exists, then update or create
+  if (existing && payload.force) {
+    const listIdForUpdate = existing.googleListId || targetListId;
+    const taskExists = await googleClient.taskExistsInList(listIdForUpdate, existing.googleTaskId);
 
-  // Save sync record
+    if (taskExists) {
+      console.log(`Task ${existing.googleTaskId} exists, updating`);
+      await googleClient.updateTaskInList(listIdForUpdate, existing.googleTaskId, {
+        title: payload.title,
+        notes: payload.notes || undefined,
+        due: dueDate,
+      });
+      taskId = existing.googleTaskId;
+      console.log(`Updated Google Task: ${taskId} in list ${listIdForUpdate}`);
+      message = 'Task updated successfully';
+    } else {
+      console.log(`Task ${existing.googleTaskId} not found, creating new task`);
+      taskId = await googleClient.createTaskInList(targetListId, {
+        title: payload.title,
+        notes: payload.notes || undefined,
+        due: dueDate,
+      });
+      console.log(`Created Google Task: ${taskId}`);
+      message = 'Task created successfully';
+    }
+  } else {
+    // Create new task in Google Tasks
+    taskId = await googleClient.createTaskInList(targetListId, {
+      title: payload.title,
+      notes: payload.notes || undefined,
+      due: dueDate,
+    });
+    console.log(`Created Google Task: ${taskId}`);
+    message = 'Task created successfully';
+  }
+
+  // Save/update sync record
   await saveSyncedItem({
     icloudUid: uid,
     googleTaskId: taskId,
+    googleListId: targetListId,
     title: payload.title,
     syncedAt: Timestamp.now(),
     lastModified: Timestamp.now(),
@@ -102,7 +133,7 @@ export async function createTaskFromWebhook(payload: WebhookPayload): Promise<Sy
 
   return {
     success: true,
-    message: 'Task created successfully',
+    message,
     taskId,
     timestamp: new Date().toISOString(),
   };
@@ -140,6 +171,26 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
 
       res.status(response.success ? 200 : 400).json(response);
     } else if (req.method === 'GET') {
+      // Debug: list tasks in a specific list
+      if (req.query.debug === 'list' && req.query.listName) {
+        const secrets = await loadSecrets();
+        const googleClient = new GoogleTasksClient(
+          secrets.googleClientId,
+          secrets.googleClientSecret,
+          secrets.googleRefreshToken,
+          ''
+        );
+        const listId = await googleClient.findOrCreateTaskList(req.query.listName as string);
+        const tasks = await googleClient.listTasksInList(listId);
+        res.status(200).json({
+          success: true,
+          listId,
+          listName: req.query.listName,
+          tasks: tasks.map(t => ({ id: t.id, title: t.title, status: t.status })),
+        });
+        return;
+      }
+
       // Health check / manual test
       res.status(200).json({
         success: true,
