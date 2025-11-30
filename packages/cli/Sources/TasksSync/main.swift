@@ -37,6 +37,18 @@ struct WebhookResponse: Codable {
   let taskId: String?
 }
 
+struct CompletedTask: Codable {
+  let uid: String
+  let title: String
+  let completedAt: String?
+}
+
+struct CompletedTasksResponse: Codable {
+  let success: Bool
+  let completed: [CompletedTask]
+  let timestamp: String
+}
+
 // Load sync state
 func loadSyncState() -> SyncState {
   guard FileManager.default.fileExists(atPath: syncStateFile.path),
@@ -52,6 +64,61 @@ func loadSyncState() -> SyncState {
 func saveSyncState(_ state: SyncState) {
   guard let data = try? JSONEncoder().encode(state) else { return }
   try? data.write(to: syncStateFile)
+}
+
+// Fetch completed tasks from server
+func fetchCompletedTasks() -> [CompletedTask] {
+  guard let url = URL(string: "\(webhookURL)?secret=\(webhookSecret)&action=completed") else {
+    log.failed("Invalid webhook URL")
+    return []
+  }
+
+  var request = URLRequest(url: url)
+  request.httpMethod = "GET"
+
+  let semaphore = DispatchSemaphore(value: 0)
+  var completedTasks: [CompletedTask] = []
+
+  URLSession.shared.dataTask(with: request) { data, response, error in
+    defer { semaphore.signal() }
+
+    if let error = error {
+      log.failed("Error fetching completed tasks: \(error.localizedDescription)")
+      return
+    }
+
+    guard let data = data,
+      let response = try? JSONDecoder().decode(CompletedTasksResponse.self, from: data)
+    else {
+      log.failed("Invalid response from completed tasks endpoint")
+      return
+    }
+
+    if response.success {
+      completedTasks = response.completed
+    }
+  }.resume()
+
+  semaphore.wait()
+  return completedTasks
+}
+
+// Mark a reminder as complete in Apple Reminders
+func markReminderComplete(uid: String, eventStore: EKEventStore) -> Bool {
+  guard let reminder = eventStore.calendarItem(withIdentifier: uid) as? EKReminder else {
+    return false
+  }
+
+  reminder.isCompleted = true
+  reminder.completionDate = Date()
+
+  do {
+    try eventStore.save(reminder, commit: true)
+    return true
+  } catch {
+    log.failed("Failed to mark reminder complete: \(error.localizedDescription)")
+    return false
+  }
 }
 
 // Result of syncing a reminder
@@ -169,7 +236,30 @@ func main() {
 
   log.stopSpinner(success: true, message: "Access granted")
 
-  // Fetch incomplete reminders
+  // Step 1: Pull completions from Google Tasks
+  log.startSpinner("Checking for completed tasks in Google")
+  let completedTasks = fetchCompletedTasks()
+  log.stopSpinner(success: true, message: "Found \(completedTasks.count) completed tasks")
+
+  // Mark completed tasks as complete in Apple Reminders
+  var completedCount = 0
+  for task in completedTasks {
+    let listName = "Google" // We don't have list info from server yet
+    let prefix = "[\(listName)] \(task.title)"
+
+    if markReminderComplete(uid: task.uid, eventStore: eventStore) {
+      log.synced("\(prefix) (completed)")
+      completedCount += 1
+    } else {
+      log.skipped("\(prefix) (not found locally)")
+    }
+  }
+
+  if completedCount > 0 {
+    log.success("\(completedCount) reminders marked as complete")
+  }
+
+  // Step 2: Fetch incomplete reminders (excludes just-completed ones)
   log.startSpinner("Fetching reminders")
   let predicate = eventStore.predicateForIncompleteReminders(
     withDueDateStarting: nil,

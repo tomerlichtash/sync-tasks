@@ -2,7 +2,12 @@ import * as functions from '@google-cloud/functions-framework';
 import { Request, Response } from '@google-cloud/functions-framework';
 import { loadSecrets } from './config/secrets';
 import { GoogleTasksClient } from './google/tasks';
-import { saveSyncedItem, getSyncedItem } from './storage/firestore';
+import {
+  saveSyncedItem,
+  getSyncedItem,
+  getAllSyncedItems,
+  updateSyncedItem,
+} from './storage/firestore';
 import { Timestamp } from '@google-cloud/firestore';
 import * as crypto from 'crypto';
 
@@ -20,6 +25,65 @@ export interface SyncResponse {
   message: string;
   taskId?: string;
   timestamp: string;
+}
+
+export interface CompletedTask {
+  uid: string;
+  title: string;
+  completedAt?: string;
+}
+
+export interface CompletedTasksResponse {
+  success: boolean;
+  completed: CompletedTask[];
+  timestamp: string;
+}
+
+export async function getCompletedTasks(): Promise<CompletedTasksResponse> {
+  console.log('Fetching completed tasks from Google');
+
+  // Load secrets and create Google Tasks client
+  const secrets = await loadSecrets();
+  const googleClient = new GoogleTasksClient(
+    secrets.googleClientId,
+    secrets.googleClientSecret,
+    secrets.googleRefreshToken,
+    ''
+  );
+
+  // Get all synced items from Firestore
+  const syncedItems = await getAllSyncedItems();
+  const completed: CompletedTask[] = [];
+
+  // Check each synced item's completion status in Google Tasks
+  for (const [uid, item] of syncedItems) {
+    // Skip if already marked as completed in our records
+    if (item.completed) {
+      continue;
+    }
+
+    const task = await googleClient.getTask(item.googleListId, item.googleTaskId);
+    if (task?.status === 'completed') {
+      console.log(`Task ${item.title} (${uid}) is completed in Google`);
+
+      // Update Firestore to mark as completed
+      await updateSyncedItem(uid, { completed: true });
+
+      completed.push({
+        uid,
+        title: item.title,
+        completedAt: task.completed || undefined,
+      });
+    }
+  }
+
+  console.log(`Found ${completed.length} newly completed tasks`);
+
+  return {
+    success: true,
+    completed,
+    timestamp: new Date().toISOString(),
+  };
 }
 
 export async function createTaskFromWebhook(payload: WebhookPayload): Promise<SyncResponse> {
@@ -171,6 +235,13 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
 
       res.status(response.success ? 200 : 400).json(response);
     } else if (req.method === 'GET') {
+      // Get completed tasks
+      if (req.query.action === 'completed') {
+        const response = await getCompletedTasks();
+        res.status(200).json(response);
+        return;
+      }
+
       // Debug: list tasks in a specific list
       if (req.query.debug === 'list' && req.query.listName) {
         const secrets = await loadSecrets();

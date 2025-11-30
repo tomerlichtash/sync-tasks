@@ -163,4 +163,21 @@ export class GoogleTasksClient {
     });
     return response.data.items || [];
   }
+
+  async getTask(listId: string, taskId: string): Promise<tasks_v1.Schema$Task | null> {
+    try {
+      const response = await this.tasksApi.tasks.get({
+        tasklist: listId,
+        task: taskId,
+      });
+      return response.data;
+    } catch {
+      return null;
+    }
+  }
+
+  async isTaskCompleted(listId: string, taskId: string): Promise<boolean> {
+    const task = await this.getTask(listId, taskId);
+    return task?.status === 'completed';
+  }
 }
