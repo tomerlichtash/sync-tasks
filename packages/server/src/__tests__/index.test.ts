@@ -24,6 +24,8 @@ jest.mock('../google/tasks', () => ({
   GoogleTasksClient: jest.fn().mockImplementation(() => ({
     findOrCreateTaskList: jest.fn().mockResolvedValue('mock-list-id'),
     createTaskInList: jest.fn().mockResolvedValue('mock-task-id'),
+    getTaskLists: jest.fn().mockResolvedValue([]),
+    listTasksInList: jest.fn().mockResolvedValue([]),
   })),
 }));
 
@@ -286,9 +288,8 @@ describe('Webhook Handler', () => {
     });
   });
 
-  describe('Completed Tasks', () => {
-    it('should return completed tasks from Google', async () => {
-      // Mock synced items in Firestore (not yet marked as completed)
+  describe('Google Status Changes', () => {
+    it('should return status changes from Google (completed)', async () => {
       const syncedItems = new Map([
         [
           'uid-1',
@@ -310,20 +311,10 @@ describe('Webhook Handler', () => {
             completed: false,
           },
         ],
-        [
-          'uid-3',
-          {
-            icloudUid: 'uid-3',
-            googleTaskId: 'task-3',
-            googleListId: 'list-2',
-            title: 'Already done',
-            completed: true, // Already marked as completed in Firestore
-          },
-        ],
       ]);
       (getAllSyncedItems as jest.Mock).mockResolvedValue(syncedItems);
 
-      // Mock Google Tasks API - task-1 is completed, task-2 is not
+      // task-1 is completed in Google, task-2 is not
       const mockGetTask = jest.fn().mockImplementation((listId: string, taskId: string) => {
         if (taskId === 'task-1') {
           return Promise.resolve({ status: 'completed', completed: '2024-01-15T10:00:00Z' });
@@ -336,7 +327,7 @@ describe('Webhook Handler', () => {
 
       const req = createMockRequest({
         method: 'GET',
-        query: { secret: 'test-secret', action: 'completed' },
+        query: { secret: 'test-secret', action: 'google-status' },
       });
       const res = createMockResponse();
 
@@ -345,20 +336,16 @@ describe('Webhook Handler', () => {
       expect(res._status).toBe(200);
       const response = res._json as {
         success: boolean;
-        completed: Array<{ uid: string; title: string }>;
+        changes: Array<{ uid: string; title: string; completed: boolean }>;
       };
       expect(response.success).toBe(true);
-      expect(response.completed).toHaveLength(1);
-      expect(response.completed[0].uid).toBe('uid-1');
-      expect(response.completed[0].title).toBe('Buy milk');
-
-      // Should update Firestore to mark as completed
+      expect(response.changes).toHaveLength(1);
+      expect(response.changes[0].uid).toBe('uid-1');
+      expect(response.changes[0].completed).toBe(true);
       expect(updateSyncedItem).toHaveBeenCalledWith('uid-1', { completed: true });
-      // Should not check task-3 since it's already marked completed
-      expect(mockGetTask).not.toHaveBeenCalledWith('list-2', 'task-3');
     });
 
-    it('should return empty array when no tasks are completed', async () => {
+    it('should return status changes from Google (uncompleted)', async () => {
       const syncedItems = new Map([
         [
           'uid-1',
@@ -366,7 +353,48 @@ describe('Webhook Handler', () => {
             icloudUid: 'uid-1',
             googleTaskId: 'task-1',
             googleListId: 'list-1',
-            title: 'Pending task',
+            title: 'Was completed',
+            completed: true, // Marked as completed in Firestore
+          },
+        ],
+      ]);
+      (getAllSyncedItems as jest.Mock).mockResolvedValue(syncedItems);
+
+      // task-1 is now incomplete in Google
+      const mockGetTask = jest.fn().mockResolvedValue({ status: 'needsAction' });
+      (GoogleTasksClient as jest.Mock).mockImplementation(() => ({
+        getTask: mockGetTask,
+      }));
+
+      const req = createMockRequest({
+        method: 'GET',
+        query: { secret: 'test-secret', action: 'google-status' },
+      });
+      const res = createMockResponse();
+
+      await handleRequest(req, res);
+
+      expect(res._status).toBe(200);
+      const response = res._json as {
+        success: boolean;
+        changes: Array<{ uid: string; completed: boolean }>;
+      };
+      expect(response.success).toBe(true);
+      expect(response.changes).toHaveLength(1);
+      expect(response.changes[0].uid).toBe('uid-1');
+      expect(response.changes[0].completed).toBe(false);
+      expect(updateSyncedItem).toHaveBeenCalledWith('uid-1', { completed: false });
+    });
+
+    it('should return empty array when no status changes', async () => {
+      const syncedItems = new Map([
+        [
+          'uid-1',
+          {
+            icloudUid: 'uid-1',
+            googleTaskId: 'task-1',
+            googleListId: 'list-1',
+            title: 'In sync',
             completed: false,
           },
         ],
@@ -380,20 +408,154 @@ describe('Webhook Handler', () => {
 
       const req = createMockRequest({
         method: 'GET',
-        query: { secret: 'test-secret', action: 'completed' },
+        query: { secret: 'test-secret', action: 'google-status' },
       });
       const res = createMockResponse();
 
       await handleRequest(req, res);
 
       expect(res._status).toBe(200);
-      const response = res._json as { success: boolean; completed: Array<{ uid: string }> };
+      const response = res._json as { success: boolean; changes: Array<{ uid: string }> };
       expect(response.success).toBe(true);
-      expect(response.completed).toHaveLength(0);
+      expect(response.changes).toHaveLength(0);
       expect(updateSyncedItem).not.toHaveBeenCalled();
     });
+  });
 
-    it('should skip tasks already marked as completed in Firestore', async () => {
+  describe('New Tasks (Google to Apple)', () => {
+    it('should return new tasks from Google that are not synced', async () => {
+      // No synced items in Firestore
+      (getAllSyncedItems as jest.Mock).mockResolvedValue(new Map());
+
+      const mockGetTaskLists = jest.fn().mockResolvedValue([
+        { id: 'list-1', title: 'Work' },
+        { id: 'list-2', title: 'Personal' },
+      ]);
+      const mockListTasksInList = jest.fn().mockImplementation((listId: string) => {
+        if (listId === 'list-1') {
+          return Promise.resolve([
+            { id: 'task-1', title: 'New task 1', notes: 'Notes 1', status: 'needsAction' },
+            { id: 'task-2', title: 'New task 2', status: 'completed' },
+          ]);
+        }
+        return Promise.resolve([
+          { id: 'task-3', title: 'New task 3', status: 'needsAction' },
+        ]);
+      });
+
+      (GoogleTasksClient as jest.Mock).mockImplementation(() => ({
+        getTaskLists: mockGetTaskLists,
+        listTasksInList: mockListTasksInList,
+      }));
+
+      const req = createMockRequest({
+        method: 'GET',
+        query: { secret: 'test-secret', action: 'new-tasks' },
+      });
+      const res = createMockResponse();
+
+      await handleRequest(req, res);
+
+      expect(res._status).toBe(200);
+      const response = res._json as {
+        success: boolean;
+        tasks: Array<{ googleTaskId: string; title: string; listName: string; completed: boolean }>;
+      };
+      expect(response.success).toBe(true);
+      expect(response.tasks).toHaveLength(3);
+      expect(response.tasks[0]).toMatchObject({
+        googleTaskId: 'task-1',
+        title: 'New task 1',
+        listName: 'Work',
+        completed: false,
+      });
+      expect(response.tasks[1]).toMatchObject({
+        googleTaskId: 'task-2',
+        title: 'New task 2',
+        completed: true,
+      });
+    });
+
+    it('should exclude tasks already synced from Apple', async () => {
+      // task-1 is already synced
+      const syncedItems = new Map([
+        [
+          'apple-uid-1',
+          {
+            icloudUid: 'apple-uid-1',
+            googleTaskId: 'task-1',
+            googleListId: 'list-1',
+            title: 'Already synced',
+            completed: false,
+          },
+        ],
+      ]);
+      (getAllSyncedItems as jest.Mock).mockResolvedValue(syncedItems);
+
+      const mockGetTaskLists = jest.fn().mockResolvedValue([{ id: 'list-1', title: 'Work' }]);
+      const mockListTasksInList = jest.fn().mockResolvedValue([
+        { id: 'task-1', title: 'Already synced', status: 'needsAction' },
+        { id: 'task-2', title: 'New from Google', status: 'needsAction' },
+      ]);
+
+      (GoogleTasksClient as jest.Mock).mockImplementation(() => ({
+        getTaskLists: mockGetTaskLists,
+        listTasksInList: mockListTasksInList,
+      }));
+
+      const req = createMockRequest({
+        method: 'GET',
+        query: { secret: 'test-secret', action: 'new-tasks' },
+      });
+      const res = createMockResponse();
+
+      await handleRequest(req, res);
+
+      expect(res._status).toBe(200);
+      const response = res._json as {
+        success: boolean;
+        tasks: Array<{ googleTaskId: string; title: string }>;
+      };
+      expect(response.success).toBe(true);
+      expect(response.tasks).toHaveLength(1);
+      expect(response.tasks[0].googleTaskId).toBe('task-2');
+      expect(response.tasks[0].title).toBe('New from Google');
+    });
+
+    it('should exclude deleted tasks', async () => {
+      (getAllSyncedItems as jest.Mock).mockResolvedValue(new Map());
+
+      const mockGetTaskLists = jest.fn().mockResolvedValue([{ id: 'list-1', title: 'Work' }]);
+      const mockListTasksInList = jest.fn().mockResolvedValue([
+        { id: 'task-1', title: 'Active task', status: 'needsAction' },
+        { id: 'task-2', title: 'Deleted task', status: 'needsAction', deleted: true },
+      ]);
+
+      (GoogleTasksClient as jest.Mock).mockImplementation(() => ({
+        getTaskLists: mockGetTaskLists,
+        listTasksInList: mockListTasksInList,
+      }));
+
+      const req = createMockRequest({
+        method: 'GET',
+        query: { secret: 'test-secret', action: 'new-tasks' },
+      });
+      const res = createMockResponse();
+
+      await handleRequest(req, res);
+
+      expect(res._status).toBe(200);
+      const response = res._json as {
+        success: boolean;
+        tasks: Array<{ googleTaskId: string }>;
+      };
+      expect(response.tasks).toHaveLength(1);
+      expect(response.tasks[0].googleTaskId).toBe('task-1');
+    });
+  });
+
+  describe('Synced Items', () => {
+    it('should return all synced items with completion status', async () => {
       const syncedItems = new Map([
         [
           'uid-1',
@@ -401,30 +563,183 @@ describe('Webhook Handler', () => {
             icloudUid: 'uid-1',
             googleTaskId: 'task-1',
             googleListId: 'list-1',
-            title: 'Already synced as complete',
+            title: 'Incomplete task',
+            completed: false,
+          },
+        ],
+        [
+          'uid-2',
+          {
+            icloudUid: 'uid-2',
+            googleTaskId: 'task-2',
+            googleListId: 'list-1',
+            title: 'Completed task',
             completed: true,
           },
         ],
       ]);
       (getAllSyncedItems as jest.Mock).mockResolvedValue(syncedItems);
 
-      const mockGetTask = jest.fn();
-      (GoogleTasksClient as jest.Mock).mockImplementation(() => ({
-        getTask: mockGetTask,
-      }));
-
       const req = createMockRequest({
         method: 'GET',
-        query: { secret: 'test-secret', action: 'completed' },
+        query: { secret: 'test-secret', action: 'synced' },
       });
       const res = createMockResponse();
 
       await handleRequest(req, res);
 
       expect(res._status).toBe(200);
-      // Should not call Google API for already-completed items
-      expect(mockGetTask).not.toHaveBeenCalled();
-      expect(updateSyncedItem).not.toHaveBeenCalled();
+      const response = res._json as {
+        success: boolean;
+        items: Array<{ icloudUid: string; title: string; completed: boolean }>;
+      };
+      expect(response.success).toBe(true);
+      expect(response.items).toHaveLength(2);
+      expect(response.items.find((i) => i.icloudUid === 'uid-1')?.completed).toBe(false);
+      expect(response.items.find((i) => i.icloudUid === 'uid-2')?.completed).toBe(true);
+    });
+  });
+
+  describe('Update Task Status', () => {
+    it('should mark a task as completed in Google', async () => {
+      (getSyncedItem as jest.Mock).mockResolvedValue({
+        icloudUid: 'apple-uid',
+        googleTaskId: 'google-task-123',
+        googleListId: 'google-list-456',
+        title: 'Task to complete',
+        completed: false,
+      });
+
+      const mockUpdateTaskInList = jest.fn().mockResolvedValue(undefined);
+      (GoogleTasksClient as jest.Mock).mockImplementation(() => ({
+        updateTaskInList: mockUpdateTaskInList,
+      }));
+
+      const req = createMockRequest({
+        method: 'POST',
+        query: { secret: 'test-secret', action: 'status' },
+        body: { icloudUid: 'apple-uid', completed: true },
+      });
+      const res = createMockResponse();
+
+      await handleRequest(req, res);
+
+      expect(res._status).toBe(200);
+      expect((res._json as { success: boolean }).success).toBe(true);
+      expect((res._json as { message: string }).message).toBe('Task marked as completed');
+      expect(mockUpdateTaskInList).toHaveBeenCalledWith(
+        'google-list-456',
+        'google-task-123',
+        { completed: true }
+      );
+      expect(updateSyncedItem).toHaveBeenCalledWith('apple-uid', { completed: true });
+    });
+
+    it('should mark a task as incomplete in Google', async () => {
+      (getSyncedItem as jest.Mock).mockResolvedValue({
+        icloudUid: 'apple-uid',
+        googleTaskId: 'google-task-123',
+        googleListId: 'google-list-456',
+        title: 'Task to uncomplete',
+        completed: true,
+      });
+
+      const mockUpdateTaskInList = jest.fn().mockResolvedValue(undefined);
+      (GoogleTasksClient as jest.Mock).mockImplementation(() => ({
+        updateTaskInList: mockUpdateTaskInList,
+      }));
+
+      const req = createMockRequest({
+        method: 'POST',
+        query: { secret: 'test-secret', action: 'status' },
+        body: { icloudUid: 'apple-uid', completed: false },
+      });
+      const res = createMockResponse();
+
+      await handleRequest(req, res);
+
+      expect(res._status).toBe(200);
+      expect((res._json as { success: boolean }).success).toBe(true);
+      expect((res._json as { message: string }).message).toBe('Task marked as incomplete');
+      expect(mockUpdateTaskInList).toHaveBeenCalledWith(
+        'google-list-456',
+        'google-task-123',
+        { completed: false }
+      );
+      expect(updateSyncedItem).toHaveBeenCalledWith('apple-uid', { completed: false });
+    });
+
+    it('should return error if synced item not found', async () => {
+      (getSyncedItem as jest.Mock).mockResolvedValue(null);
+
+      const req = createMockRequest({
+        method: 'POST',
+        query: { secret: 'test-secret', action: 'status' },
+        body: { icloudUid: 'nonexistent-uid', completed: true },
+      });
+      const res = createMockResponse();
+
+      await handleRequest(req, res);
+
+      expect(res._status).toBe(400);
+      expect((res._json as { success: boolean }).success).toBe(false);
+      expect((res._json as { message: string }).message).toBe('Synced item not found');
+    });
+  });
+
+  describe('Register Task', () => {
+    it('should register a reverse-synced task', async () => {
+      const req = createMockRequest({
+        method: 'POST',
+        query: { secret: 'test-secret', action: 'register' },
+        body: {
+          googleTaskId: 'google-task-123',
+          googleListId: 'google-list-456',
+          icloudUid: 'apple-uid-789',
+          title: 'Imported task',
+          completed: false,
+        },
+      });
+      const res = createMockResponse();
+
+      await handleRequest(req, res);
+
+      expect(res._status).toBe(200);
+      expect((res._json as { success: boolean }).success).toBe(true);
+      expect((res._json as { message: string }).message).toBe('Task registered successfully');
+      expect(saveSyncedItem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          googleTaskId: 'google-task-123',
+          googleListId: 'google-list-456',
+          icloudUid: 'apple-uid-789',
+          title: 'Imported task',
+          completed: false,
+        })
+      );
+    });
+
+    it('should register a completed reverse-synced task', async () => {
+      const req = createMockRequest({
+        method: 'POST',
+        query: { secret: 'test-secret', action: 'register' },
+        body: {
+          googleTaskId: 'google-task-123',
+          googleListId: 'google-list-456',
+          icloudUid: 'apple-uid-789',
+          title: 'Completed imported task',
+          completed: true,
+        },
+      });
+      const res = createMockResponse();
+
+      await handleRequest(req, res);
+
+      expect(res._status).toBe(200);
+      expect(saveSyncedItem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          completed: true,
+        })
+      );
     });
   });
 });

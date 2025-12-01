@@ -39,8 +39,64 @@ export interface CompletedTasksResponse {
   timestamp: string;
 }
 
-export async function getCompletedTasks(): Promise<CompletedTasksResponse> {
-  console.log('Fetching completed tasks from Google');
+export interface NewTask {
+  googleTaskId: string;
+  googleListId: string;
+  listName: string;
+  title: string;
+  notes?: string;
+  due?: string;
+  completed: boolean;
+}
+
+export interface NewTasksResponse {
+  success: boolean;
+  tasks: NewTask[];
+  timestamp: string;
+}
+
+export interface RegisterTaskPayload {
+  googleTaskId: string;
+  googleListId: string;
+  icloudUid: string;
+  title: string;
+  completed: boolean;
+}
+
+export interface SyncedItem {
+  icloudUid: string;
+  googleTaskId: string;
+  googleListId: string;
+  title: string;
+  completed: boolean;
+}
+
+export interface IncompleteSyncedItemsResponse {
+  success: boolean;
+  items: SyncedItem[];
+  timestamp: string;
+}
+
+export interface CompleteTaskPayload {
+  icloudUid: string;
+  completed: boolean;
+}
+
+export interface StatusChange {
+  uid: string;
+  title: string;
+  completed: boolean;
+  changedAt?: string;
+}
+
+export interface StatusChangesResponse {
+  success: boolean;
+  changes: StatusChange[];
+  timestamp: string;
+}
+
+export async function getGoogleStatusChanges(): Promise<StatusChangesResponse> {
+  console.log('Fetching status changes from Google');
 
   // Load secrets and create Google Tasks client
   const secrets = await loadSecrets();
@@ -53,35 +109,193 @@ export async function getCompletedTasks(): Promise<CompletedTasksResponse> {
 
   // Get all synced items from Firestore
   const syncedItems = await getAllSyncedItems();
-  const completed: CompletedTask[] = [];
+  const changes: StatusChange[] = [];
 
   // Check each synced item's completion status in Google Tasks
   for (const [uid, item] of syncedItems) {
-    // Skip if already marked as completed in our records
-    if (item.completed) {
-      continue;
-    }
-
     const task = await googleClient.getTask(item.googleListId, item.googleTaskId);
-    if (task?.status === 'completed') {
-      console.log(`Task ${item.title} (${uid}) is completed in Google`);
+    if (!task) continue;
 
-      // Update Firestore to mark as completed
-      await updateSyncedItem(uid, { completed: true });
+    const googleCompleted = task.status === 'completed';
+    const firestoreCompleted = item.completed || false;
 
-      completed.push({
+    // Check if status differs
+    if (googleCompleted !== firestoreCompleted) {
+      const action = googleCompleted ? 'completed' : 'uncompleted';
+      console.log(`Task ${item.title} (${uid}) is ${action} in Google`);
+
+      // Update Firestore to match Google status
+      await updateSyncedItem(uid, { completed: googleCompleted });
+
+      changes.push({
         uid,
         title: item.title,
-        completedAt: task.completed || undefined,
+        completed: googleCompleted,
+        changedAt: googleCompleted ? (task.completed || undefined) : undefined,
       });
     }
   }
 
-  console.log(`Found ${completed.length} newly completed tasks`);
+  console.log(`Found ${changes.length} status changes from Google`);
 
   return {
     success: true,
-    completed,
+    changes,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+export async function getNewTasks(): Promise<NewTasksResponse> {
+  console.log('Fetching new tasks from Google (not synced from Apple)');
+
+  // Load secrets and create Google Tasks client
+  const secrets = await loadSecrets();
+  const googleClient = new GoogleTasksClient(
+    secrets.googleClientId,
+    secrets.googleClientSecret,
+    secrets.googleRefreshToken,
+    ''
+  );
+
+  // Get all synced items from Firestore (keyed by iCloud UID)
+  const syncedItems = await getAllSyncedItems();
+
+  // Build a set of Google Task IDs that are already synced
+  const syncedGoogleTaskIds = new Set<string>();
+  for (const [, item] of syncedItems) {
+    syncedGoogleTaskIds.add(item.googleTaskId);
+  }
+
+  // Get all task lists
+  const taskLists = await googleClient.getTaskLists();
+  const newTasks: NewTask[] = [];
+
+  // Check each list for tasks not in our sync records
+  for (const list of taskLists) {
+    if (!list.id || !list.title) continue;
+
+    const tasks = await googleClient.listTasksInList(list.id);
+
+    for (const task of tasks) {
+      if (!task.id || !task.title) continue;
+
+      // Skip if already synced (exists in Firestore)
+      if (syncedGoogleTaskIds.has(task.id)) {
+        continue;
+      }
+
+      // Skip deleted tasks
+      if (task.deleted) {
+        continue;
+      }
+
+      newTasks.push({
+        googleTaskId: task.id,
+        googleListId: list.id,
+        listName: list.title,
+        title: task.title,
+        notes: task.notes || undefined,
+        due: task.due || undefined,
+        completed: task.status === 'completed',
+      });
+    }
+  }
+
+  console.log(`Found ${newTasks.length} new tasks from Google`);
+
+  return {
+    success: true,
+    tasks: newTasks,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+export async function registerSyncedTask(payload: RegisterTaskPayload): Promise<SyncResponse> {
+  console.log('Registering reverse-synced task:', JSON.stringify(payload));
+
+  // Save sync record for a task created in Google and imported to Apple
+  await saveSyncedItem({
+    icloudUid: payload.icloudUid,
+    googleTaskId: payload.googleTaskId,
+    googleListId: payload.googleListId,
+    title: payload.title,
+    syncedAt: Timestamp.now(),
+    lastModified: Timestamp.now(),
+    completed: payload.completed,
+  });
+
+  return {
+    success: true,
+    message: 'Task registered successfully',
+    taskId: payload.googleTaskId,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+export async function getSyncedItems(): Promise<IncompleteSyncedItemsResponse> {
+  console.log('Fetching all synced items for status check');
+
+  // Get all synced items from Firestore
+  const syncedItems = await getAllSyncedItems();
+  const items: SyncedItem[] = [];
+
+  // Return all items with their completion status
+  for (const [uid, item] of syncedItems) {
+    items.push({
+      icloudUid: uid,
+      googleTaskId: item.googleTaskId,
+      googleListId: item.googleListId,
+      title: item.title,
+      completed: item.completed || false,
+    });
+  }
+
+  console.log(`Found ${items.length} synced items`);
+
+  return {
+    success: true,
+    items,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+export async function updateTaskStatus(payload: CompleteTaskPayload): Promise<SyncResponse> {
+  const action = payload.completed ? 'completed' : 'incomplete';
+  console.log(`Marking task as ${action}:`, payload.icloudUid);
+
+  // Get the synced item to find the Google Task ID
+  const syncedItem = await getSyncedItem(payload.icloudUid);
+  if (!syncedItem) {
+    return {
+      success: false,
+      message: 'Synced item not found',
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  // Load secrets and create Google Tasks client
+  const secrets = await loadSecrets();
+  const googleClient = new GoogleTasksClient(
+    secrets.googleClientId,
+    secrets.googleClientSecret,
+    secrets.googleRefreshToken,
+    ''
+  );
+
+  // Update the Google Task status
+  await googleClient.updateTaskInList(syncedItem.googleListId, syncedItem.googleTaskId, {
+    completed: payload.completed,
+  });
+
+  // Update Firestore
+  await updateSyncedItem(payload.icloudUid, { completed: payload.completed });
+
+  console.log(`Marked Google Task ${syncedItem.googleTaskId} as ${action}`);
+
+  return {
+    success: true,
+    message: `Task marked as ${action}`,
+    taskId: syncedItem.googleTaskId,
     timestamp: new Date().toISOString(),
   };
 }
@@ -229,15 +443,45 @@ export async function handleRequest(req: Request, res: Response): Promise<void> 
 
   try {
     if (req.method === 'POST') {
-      // Webhook from iOS Shortcuts
+      // Register a task that was imported from Google to Apple
+      if (req.query.action === 'register') {
+        const payload: RegisterTaskPayload = req.body;
+        const response = await registerSyncedTask(payload);
+        res.status(response.success ? 200 : 400).json(response);
+        return;
+      }
+
+      // Update task status in Google (complete/incomplete from Apple)
+      if (req.query.action === 'status') {
+        const payload: CompleteTaskPayload = req.body;
+        const response = await updateTaskStatus(payload);
+        res.status(response.success ? 200 : 400).json(response);
+        return;
+      }
+
+      // Webhook from iOS Shortcuts - create task in Google
       const payload: WebhookPayload = req.body;
       const response = await createTaskFromWebhook(payload);
 
       res.status(response.success ? 200 : 400).json(response);
     } else if (req.method === 'GET') {
-      // Get completed tasks
-      if (req.query.action === 'completed') {
-        const response = await getCompletedTasks();
+      // Get status changes from Google (completed or uncompleted)
+      if (req.query.action === 'google-status') {
+        const response = await getGoogleStatusChanges();
+        res.status(200).json(response);
+        return;
+      }
+
+      // Get new tasks from Google (not synced from Apple)
+      if (req.query.action === 'new-tasks') {
+        const response = await getNewTasks();
+        res.status(200).json(response);
+        return;
+      }
+
+      // Get all synced items (for checking Apple status changes)
+      if (req.query.action === 'synced') {
+        const response = await getSyncedItems();
         res.status(200).json(response);
         return;
       }

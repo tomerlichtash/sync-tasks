@@ -37,16 +37,60 @@ struct WebhookResponse: Codable {
   let taskId: String?
 }
 
-struct CompletedTask: Codable {
+struct StatusChange: Codable {
   let uid: String
   let title: String
-  let completedAt: String?
+  let completed: Bool
+  let changedAt: String?
 }
 
-struct CompletedTasksResponse: Codable {
+struct StatusChangesResponse: Codable {
   let success: Bool
-  let completed: [CompletedTask]
+  let changes: [StatusChange]
   let timestamp: String
+}
+
+struct NewTask: Codable {
+  let googleTaskId: String
+  let googleListId: String
+  let listName: String
+  let title: String
+  let notes: String?
+  let due: String?
+  let completed: Bool
+}
+
+struct NewTasksResponse: Codable {
+  let success: Bool
+  let tasks: [NewTask]
+  let timestamp: String
+}
+
+struct RegisterTaskPayload: Codable {
+  let googleTaskId: String
+  let googleListId: String
+  let icloudUid: String
+  let title: String
+  let completed: Bool
+}
+
+struct SyncedItem: Codable {
+  let icloudUid: String
+  let googleTaskId: String
+  let googleListId: String?
+  let title: String
+  let completed: Bool
+}
+
+struct IncompleteSyncedItemsResponse: Codable {
+  let success: Bool
+  let items: [SyncedItem]
+  let timestamp: String
+}
+
+struct StatusUpdatePayload: Codable {
+  let icloudUid: String
+  let completed: Bool
 }
 
 // Load sync state
@@ -66,9 +110,9 @@ func saveSyncState(_ state: SyncState) {
   try? data.write(to: syncStateFile)
 }
 
-// Fetch completed tasks from server
-func fetchCompletedTasks() -> [CompletedTask] {
-  guard let url = URL(string: "\(webhookURL)?secret=\(webhookSecret)&action=completed") else {
+// Fetch status changes from Google (completed or uncompleted)
+func fetchGoogleStatusChanges() -> [StatusChange] {
+  guard let url = URL(string: "\(webhookURL)?secret=\(webhookSecret)&action=google-status") else {
     log.failed("Invalid webhook URL")
     return []
   }
@@ -77,48 +121,247 @@ func fetchCompletedTasks() -> [CompletedTask] {
   request.httpMethod = "GET"
 
   let semaphore = DispatchSemaphore(value: 0)
-  var completedTasks: [CompletedTask] = []
+  var changes: [StatusChange] = []
 
   URLSession.shared.dataTask(with: request) { data, response, error in
     defer { semaphore.signal() }
 
     if let error = error {
-      log.failed("Error fetching completed tasks: \(error.localizedDescription)")
+      log.failed("Error fetching Google status changes: \(error.localizedDescription)")
       return
     }
 
     guard let data = data,
-      let response = try? JSONDecoder().decode(CompletedTasksResponse.self, from: data)
+      let response = try? JSONDecoder().decode(StatusChangesResponse.self, from: data)
     else {
-      log.failed("Invalid response from completed tasks endpoint")
+      log.failed("Invalid response from google-status endpoint")
       return
     }
 
     if response.success {
-      completedTasks = response.completed
+      changes = response.changes
     }
   }.resume()
 
   semaphore.wait()
-  return completedTasks
+  return changes
 }
 
-// Mark a reminder as complete in Apple Reminders
-func markReminderComplete(uid: String, eventStore: EKEventStore) -> Bool {
+// Fetch new tasks from server (tasks created in Google, not synced from Apple)
+func fetchNewTasks() -> [NewTask] {
+  guard let url = URL(string: "\(webhookURL)?secret=\(webhookSecret)&action=new-tasks") else {
+    log.failed("Invalid webhook URL")
+    return []
+  }
+
+  var request = URLRequest(url: url)
+  request.httpMethod = "GET"
+
+  let semaphore = DispatchSemaphore(value: 0)
+  var newTasks: [NewTask] = []
+
+  URLSession.shared.dataTask(with: request) { data, response, error in
+    defer { semaphore.signal() }
+
+    if let error = error {
+      log.failed("Error fetching new tasks: \(error.localizedDescription)")
+      return
+    }
+
+    guard let data = data,
+      let response = try? JSONDecoder().decode(NewTasksResponse.self, from: data)
+    else {
+      log.failed("Invalid response from new-tasks endpoint")
+      return
+    }
+
+    if response.success {
+      newTasks = response.tasks
+    }
+  }.resume()
+
+  semaphore.wait()
+  return newTasks
+}
+
+// Update reminder status in Apple Reminders (complete or incomplete)
+func updateReminderStatus(uid: String, completed: Bool, eventStore: EKEventStore) -> Bool {
   guard let reminder = eventStore.calendarItem(withIdentifier: uid) as? EKReminder else {
     return false
   }
 
-  reminder.isCompleted = true
-  reminder.completionDate = Date()
+  reminder.isCompleted = completed
+  reminder.completionDate = completed ? Date() : nil
 
   do {
     try eventStore.save(reminder, commit: true)
     return true
   } catch {
-    log.failed("Failed to mark reminder complete: \(error.localizedDescription)")
+    let action = completed ? "complete" : "uncomplete"
+    log.failed("Failed to \(action) reminder: \(error.localizedDescription)")
     return false
   }
+}
+
+// Create a new reminder in Apple Reminders from a Google Task
+func createReminder(from task: NewTask, eventStore: EKEventStore) -> String? {
+  let reminder = EKReminder(eventStore: eventStore)
+  reminder.title = task.title
+  reminder.notes = task.notes
+
+  // Find or use default calendar matching the list name
+  if let calendar = eventStore.calendars(for: .reminder).first(where: { $0.title == task.listName }) {
+    reminder.calendar = calendar
+  } else {
+    reminder.calendar = eventStore.defaultCalendarForNewReminders()
+  }
+
+  // Parse due date if provided
+  if let dueString = task.due {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let dueDate = formatter.date(from: dueString) {
+      reminder.dueDateComponents = Calendar.current.dateComponents(
+        [.year, .month, .day, .hour, .minute],
+        from: dueDate
+      )
+    }
+  }
+
+  // Set completion status
+  if task.completed {
+    reminder.isCompleted = true
+    reminder.completionDate = Date()
+  }
+
+  do {
+    try eventStore.save(reminder, commit: true)
+    return reminder.calendarItemIdentifier
+  } catch {
+    log.failed("Failed to create reminder: \(error.localizedDescription)")
+    return nil
+  }
+}
+
+// Register a synced task with the server
+func registerSyncedTask(task: NewTask, icloudUid: String) -> Bool {
+  guard let url = URL(string: "\(webhookURL)?secret=\(webhookSecret)&action=register") else {
+    log.failed("Invalid webhook URL")
+    return false
+  }
+
+  let payload = RegisterTaskPayload(
+    googleTaskId: task.googleTaskId,
+    googleListId: task.googleListId,
+    icloudUid: icloudUid,
+    title: task.title,
+    completed: task.completed
+  )
+
+  var request = URLRequest(url: url)
+  request.httpMethod = "POST"
+  request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+  request.httpBody = try? JSONEncoder().encode(payload)
+
+  let semaphore = DispatchSemaphore(value: 0)
+  var success = false
+
+  URLSession.shared.dataTask(with: request) { data, response, error in
+    defer { semaphore.signal() }
+
+    if let error = error {
+      log.failed("Error registering task: \(error.localizedDescription)")
+      return
+    }
+
+    guard let data = data,
+      let response = try? JSONDecoder().decode(WebhookResponse.self, from: data)
+    else {
+      log.failed("Invalid response from register endpoint")
+      return
+    }
+
+    success = response.success
+  }.resume()
+
+  semaphore.wait()
+  return success
+}
+
+// Fetch all synced items from server (to check for Apple status changes)
+func fetchSyncedItems() -> [SyncedItem] {
+  guard let url = URL(string: "\(webhookURL)?secret=\(webhookSecret)&action=synced") else {
+    log.failed("Invalid webhook URL")
+    return []
+  }
+
+  var request = URLRequest(url: url)
+  request.httpMethod = "GET"
+
+  let semaphore = DispatchSemaphore(value: 0)
+  var items: [SyncedItem] = []
+
+  URLSession.shared.dataTask(with: request) { data, response, error in
+    defer { semaphore.signal() }
+
+    if let error = error {
+      log.failed("Error fetching synced items: \(error.localizedDescription)")
+      return
+    }
+
+    guard let data = data,
+      let response = try? JSONDecoder().decode(IncompleteSyncedItemsResponse.self, from: data)
+    else {
+      log.failed("Invalid response from synced endpoint")
+      return
+    }
+
+    if response.success {
+      items = response.items
+    }
+  }.resume()
+
+  semaphore.wait()
+  return items
+}
+
+// Update task status in Google (complete or incomplete)
+func updateGoogleTaskStatus(icloudUid: String, completed: Bool) -> Bool {
+  guard let url = URL(string: "\(webhookURL)?secret=\(webhookSecret)&action=status") else {
+    log.failed("Invalid webhook URL")
+    return false
+  }
+
+  let payload = StatusUpdatePayload(icloudUid: icloudUid, completed: completed)
+
+  var request = URLRequest(url: url)
+  request.httpMethod = "POST"
+  request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+  request.httpBody = try? JSONEncoder().encode(payload)
+
+  let semaphore = DispatchSemaphore(value: 0)
+  var success = false
+
+  URLSession.shared.dataTask(with: request) { data, response, error in
+    defer { semaphore.signal() }
+
+    if let error = error {
+      log.failed("Error updating task status: \(error.localizedDescription)")
+      return
+    }
+
+    guard let data = data,
+      let response = try? JSONDecoder().decode(WebhookResponse.self, from: data)
+    else {
+      log.failed("Invalid response from status endpoint")
+      return
+    }
+
+    success = response.success
+  }.resume()
+
+  semaphore.wait()
+  return success
 }
 
 // Result of syncing a reminder
@@ -236,30 +479,95 @@ func main() {
 
   log.stopSpinner(success: true, message: "Access granted")
 
-  // Step 1: Pull completions from Google Tasks
-  log.startSpinner("Checking for completed tasks in Google")
-  let completedTasks = fetchCompletedTasks()
-  log.stopSpinner(success: true, message: "Found \(completedTasks.count) completed tasks")
+  // Step 1: Pull status changes from Google Tasks (completed or uncompleted)
+  log.startSpinner("Checking for status changes in Google")
+  let googleChanges = fetchGoogleStatusChanges()
+  log.stopSpinner(success: true, message: "Found \(googleChanges.count) status changes")
 
-  // Mark completed tasks as complete in Apple Reminders
-  var completedCount = 0
-  for task in completedTasks {
-    let listName = "Google" // We don't have list info from server yet
-    let prefix = "[\(listName)] \(task.title)"
+  // Apply status changes to Apple Reminders
+  var appleStatusChanges = 0
+  for change in googleChanges {
+    let action = change.completed ? "completed" : "uncompleted"
+    let prefix = "[Google] \(change.title)"
 
-    if markReminderComplete(uid: task.uid, eventStore: eventStore) {
-      log.synced("\(prefix) (completed)")
-      completedCount += 1
+    if updateReminderStatus(uid: change.uid, completed: change.completed, eventStore: eventStore) {
+      log.synced("\(prefix) (\(action))")
+      appleStatusChanges += 1
     } else {
       log.skipped("\(prefix) (not found locally)")
     }
   }
 
-  if completedCount > 0 {
-    log.success("\(completedCount) reminders marked as complete")
+  if appleStatusChanges > 0 {
+    log.success("\(appleStatusChanges) reminders updated from Google")
   }
 
-  // Step 2: Fetch incomplete reminders (excludes just-completed ones)
+  // Step 1.5: Sync status changes from Apple to Google
+  log.startSpinner("Checking for status changes to sync to Google")
+  let syncedItems = fetchSyncedItems()
+  log.stopSpinner(success: true, message: "Found \(syncedItems.count) items to check")
+
+  var googleStatusChanges = 0
+  for item in syncedItems {
+    // Check if the reminder exists and compare status
+    if let reminder = eventStore.calendarItem(withIdentifier: item.icloudUid) as? EKReminder {
+      let appleCompleted = reminder.isCompleted
+      let serverCompleted = item.completed
+
+      // Only sync if status differs
+      if appleCompleted != serverCompleted {
+        let listName = reminder.calendar?.title ?? "Unknown"
+        let prefix = "[\(listName)] \(item.title)"
+        let action = appleCompleted ? "completed" : "uncompleted"
+        log.startSpinner(prefix)
+
+        if updateGoogleTaskStatus(icloudUid: item.icloudUid, completed: appleCompleted) {
+          log.synced("\(prefix) (\(action) in Google)")
+          googleStatusChanges += 1
+        } else {
+          log.failed("\(prefix) (failed to \(action) in Google)")
+        }
+      }
+    }
+  }
+
+  if googleStatusChanges > 0 {
+    log.success("\(googleStatusChanges) status changes synced to Google")
+  }
+
+  // Step 2: Import new tasks from Google (created in Google, not synced from Apple)
+  log.startSpinner("Checking for new tasks in Google")
+  let newTasks = fetchNewTasks()
+  log.stopSpinner(success: true, message: "Found \(newTasks.count) new tasks from Google")
+
+  // Track UIDs of imported reminders to skip them during push phase
+  var importedUIDs = Set<String>()
+  var importedCount = 0
+
+  for task in newTasks {
+    let prefix = "[\(task.listName)] \(task.title)"
+    log.startSpinner(prefix)
+
+    if let icloudUid = createReminder(from: task, eventStore: eventStore) {
+      // Register with server so it knows about the sync
+      if registerSyncedTask(task: task, icloudUid: icloudUid) {
+        importedUIDs.insert(icloudUid)
+        let status = task.completed ? "imported, completed" : "imported"
+        log.synced("\(prefix) (\(status))")
+        importedCount += 1
+      } else {
+        log.failed("\(prefix) (failed to register)")
+      }
+    } else {
+      log.failed("\(prefix) (failed to create)")
+    }
+  }
+
+  if importedCount > 0 {
+    log.success("\(importedCount) tasks imported from Google")
+  }
+
+  // Step 3: Fetch incomplete reminders (excludes just-completed ones)
   log.startSpinner("Fetching reminders")
   let predicate = eventStore.predicateForIncompleteReminders(
     withDueDateStarting: nil,
@@ -292,9 +600,16 @@ func main() {
     let title = reminder.title ?? "Untitled"
     let listName = reminder.calendar?.title ?? "Unknown"
     let prefix = "[\(listName)] \(title)"
+    let uid = reminder.calendarItemIdentifier
+
+    // Skip if just imported from Google (prevent sync loop)
+    if importedUIDs.contains(uid) {
+      log.skipped("\(prefix) (just imported)")
+      continue
+    }
 
     // Skip if already synced (unless force flag is set)
-    if !forceSync && state.syncedReminders[reminder.calendarItemIdentifier] != nil {
+    if !forceSync && state.syncedReminders[uid] != nil {
       log.skipped("\(prefix) (skipped)")
       continue
     }
