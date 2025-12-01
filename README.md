@@ -6,17 +6,19 @@ Automatically sync your iOS Reminders to Google Tasks. Reminders are synced to m
 
 ```
 ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│  Mac (launchd)  │────▶│  Cloud Function  │────▶│  Google Tasks   │
-│  EventKit CLI   │     │  (GCP)           │     │                 │
+│  Mac (launchd)  │◀───▶│  Cloud Function  │◀───▶│  Google Tasks   │
+│  EventKit CLI   │     │  (GCP/Firestore) │     │                 │
 └─────────────────┘     └──────────────────┘     └─────────────────┘
+        ▲
         │
         ▼
   Local Reminders
    (syncs via iCloud)
 ```
 
-- **Local Swift CLI** reads reminders via EventKit (runs every 15 min)
-- **Cloud Function** creates tasks in Google Tasks
+- **Local Swift CLI** syncs reminders via EventKit (runs every 15 min)
+- **Cloud Function** manages bidirectional sync with Google Tasks
+- **Firestore** tracks sync state for completion status changes
 - Lists are created dynamically to match your iOS Reminder lists
 
 ## Prerequisites
@@ -191,13 +193,24 @@ WEBHOOK_SECRET="YOUR_SECRET" \
 ./packages/cli/.build/release/sync-tasks --force
 ```
 
+## Sync Capabilities
+
+| Feature | Google → Apple | Apple → Google |
+|---------|----------------|----------------|
+| **New tasks/reminders** | ✅ | ✅ |
+| **Mark complete** | ✅ | ✅ |
+| **Mark incomplete** | ✅ | ✅ |
+| **Deletions** | ❌ | ❌ |
+| **Title/notes/due changes** | ❌ | ❌ |
+
 ## How It Works
 
 1. **Local CLI** uses EventKit to read incomplete reminders from your Mac
 2. Each reminder is sent to the **Cloud Function** via webhook
 3. Cloud Function finds/creates matching Google Tasks list
 4. Task is created in Google Tasks
-5. Sync state is saved locally (`~/.sync-tasks-state.json`) to avoid duplicates
+5. Sync state is tracked in Firestore to enable bidirectional sync
+6. Completion status changes are synced in both directions
 
 ## File Structure
 
@@ -277,6 +290,13 @@ Or use the Makefile from root:
 ```bash
 make test
 ```
+
+## Roadmap
+
+- [ ] Sync deletions (both directions)
+- [ ] Sync title/notes/due date changes (both directions)
+- [ ] Conflict resolution for simultaneous edits
+- [ ] Support for subtasks/nested reminders
 
 ## License
 

@@ -438,9 +438,7 @@ describe('Webhook Handler', () => {
             { id: 'task-2', title: 'New task 2', status: 'completed' },
           ]);
         }
-        return Promise.resolve([
-          { id: 'task-3', title: 'New task 3', status: 'needsAction' },
-        ]);
+        return Promise.resolve([{ id: 'task-3', title: 'New task 3', status: 'needsAction' }]);
       });
 
       (GoogleTasksClient as jest.Mock).mockImplementation(() => ({
@@ -627,11 +625,9 @@ describe('Webhook Handler', () => {
       expect(res._status).toBe(200);
       expect((res._json as { success: boolean }).success).toBe(true);
       expect((res._json as { message: string }).message).toBe('Task marked as completed');
-      expect(mockUpdateTaskInList).toHaveBeenCalledWith(
-        'google-list-456',
-        'google-task-123',
-        { completed: true }
-      );
+      expect(mockUpdateTaskInList).toHaveBeenCalledWith('google-list-456', 'google-task-123', {
+        completed: true,
+      });
       expect(updateSyncedItem).toHaveBeenCalledWith('apple-uid', { completed: true });
     });
 
@@ -661,11 +657,9 @@ describe('Webhook Handler', () => {
       expect(res._status).toBe(200);
       expect((res._json as { success: boolean }).success).toBe(true);
       expect((res._json as { message: string }).message).toBe('Task marked as incomplete');
-      expect(mockUpdateTaskInList).toHaveBeenCalledWith(
-        'google-list-456',
-        'google-task-123',
-        { completed: false }
-      );
+      expect(mockUpdateTaskInList).toHaveBeenCalledWith('google-list-456', 'google-task-123', {
+        completed: false,
+      });
       expect(updateSyncedItem).toHaveBeenCalledWith('apple-uid', { completed: false });
     });
 

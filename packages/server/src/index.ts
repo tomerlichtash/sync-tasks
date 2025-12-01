@@ -131,7 +131,7 @@ export async function getGoogleStatusChanges(): Promise<StatusChangesResponse> {
         uid,
         title: item.title,
         completed: googleCompleted,
-        changedAt: googleCompleted ? (task.completed || undefined) : undefined,
+        changedAt: googleCompleted ? task.completed || undefined : undefined,
       });
     }
   }
